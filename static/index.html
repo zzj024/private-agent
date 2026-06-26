@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Private Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+  .header { background: #2c3e50; color: white; padding: 16px 24px; }
+  .header h1 { font-size: 20px; }
+  .header small { opacity: 0.7; font-size: 12px; }
+  .nav { display: flex; background: #fff; border-bottom: 1px solid #ddd; flex-wrap: wrap; }
+  .nav a { padding: 12px 20px; text-decoration: none; color: #666; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; }
+  .nav a:hover { color: #2c3e50; }
+  .nav a.active { color: #2c3e50; border-bottom-color: #2c3e50; font-weight: 600; }
+  .main { max-width: 800px; margin: 0 auto; padding: 24px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .card h3 { font-size: 15px; margin-bottom: 12px; color: #2c3e50; }
+  input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; }
+  input:focus { outline: none; border-color: #2c3e50; }
+  button { background: #2c3e50; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  button:hover { background: #34495e; }
+  .btn-sm { padding: 4px 12px; font-size: 12px; }
+  .btn-green { background: #27ae60; }
+  .btn-green:hover { background: #2ecc71; }
+  .result { margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 6px; white-space: pre-wrap; font-size: 14px; display: none; }
+  .result.show { display: block; }
+  .result.error { background: #fff5f5; color: #c0392b; }
+  .mem-item { padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+  .mem-item:last-child { border-bottom: none; }
+  .mem-key { font-weight: 600; color: #2c3e50; }
+  .mem-cat { font-size: 12px; color: #999; margin-left: 8px; }
+  .loading { display: none; color: #999; font-size: 13px; margin-top: 8px; }
+  .loading.show { display: block; }
+  .loading::after { content: '...'; animation: dots 1.5s steps(4, end) infinite; }
+  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  .chat-box { max-height: 400px; overflow-y: auto; margin-bottom: 12px; }
+  .msg { margin-bottom: 8px; }
+  .msg.user { text-align: right; }
+  .msg.assistant { text-align: left; }
+  .bubble { display: inline-block; max-width: 85%; padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.7; text-align: left; }
+  .msg.user .bubble { background: #e8f4fd; border-bottom-right-radius: 4px; }
+  .msg.assistant .bubble { background: #f0f0f0; border-bottom-left-radius: 4px; }
+  .bubble p { margin: 0.45rem 0 0.75rem; }
+  .bubble ol, .bubble ul { margin: 0.6rem 0 0.9rem; padding-left: 1.5rem; }
+  .bubble li { margin: 0.65rem 0; line-height: 1.7; }
+  .bubble strong { font-weight: 700; }
+  .bubble code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+  .input-row { display: flex; gap: 8px; margin-top: 8px; }
+  .input-row input { flex: 1; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Private Agent</h1>
+  <small>私人知识库管理员 v0.1</small>
+</div>
+<div class="nav">
+  <a class="active" onclick="switchTab('chat',this)">💬 聊天</a>
+  <a onclick="switchTab('kb',this)">📚 知识库</a>
+  <a onclick="switchTab('import',this)">📥 导入</a>
+  <a onclick="switchTab('memory',this)">🧠 记忆</a>
+</div>
+<div class="main">
+<div class="panel active" id="panel-chat">
+  <div class="card">
+    <h3>与 Agent 对话</h3>
+    <div class="chat-box" id="chatBox"></div>
+    <div class="input-row">
+      <input id="chatInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button onclick="sendChat()">发送</button>
+    </div>
+    <div class="loading" id="chatLoading">思考中</div>
+  </div>
+</div>
+<div class="panel" id="panel-kb">
+  <div class="card">
+    <h3>搜索知识库</h3>
+    <div class="input-row">
+      <input id="kbQuery" placeholder="输入搜索词..." onkeydown="if(event.key==='Enter')searchKb()">
+      <button onclick="searchKb()">搜索</button>
+    </div>
+    <div class="loading" id="kbLoading">搜索中</div>
+    <div class="result" id="kbResult"></div>
+  </div>
+  <div class="card">
+    <h3>知识库状态</h3>
+    <p style="color:#666" id="kbStatus">导入本地笔记后显示状态。</p>
+  </div>
+</div>
+<div class="panel" id="panel-import">
+  <div class="card">
+    <h3>导入本地笔记</h3>
+    <p style="color:#666;font-size:13px;margin-bottom:8px">将 knowledge/ 目录下的 .md/.txt 文件导入知识库</p>
+    <input id="localDir" value="knowledge" placeholder="目录路径" style="margin-bottom:8px">
+    <button class="btn-green" onclick="ingestLocal()">开始导入</button>
+    <div class="loading" id="localLoading">导入中（较慢，请等待）</div>
+    <div class="result" id="localResult"></div>
+  </div>
+</div>
+<div class="panel" id="panel-memory">
+  <div class="card">
+    <h3>长期记忆</h3>
+    <div style="margin-bottom:12px">
+      <button class="btn-sm" onclick="loadMemories('')">全部</button>
+      <button class="btn-sm" onclick="loadMemories('tech_stack')">技术栈</button>
+      <button class="btn-sm" onclick="loadMemories('weak_point')">薄弱点</button>
+      <button class="btn-sm" onclick="loadMemories('goal')">目标</button>
+      <button class="btn-sm" onclick="loadMemories('preference')">偏好</button>
+    </div>
+    <div id="memoryList"></div>
+    <div class="loading" id="memLoading">加载中</div>
+  </div>
+</div>
+</div>
+
+<script>
+var markedOk = false, purifyOk = false;
+try { marked.setOptions({gfm:true,breaks:true}); markedOk = true; } catch(e){}
+try { DOMPurify.sanitize('t'); purifyOk = true; } catch(e){}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.nav a').forEach(function(a){a.classList.remove('active');});
+  document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active');});
+  el.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+  if (name === 'memory') loadMemories();
+}
+
+function addMsg(role, text) {
+  var box = document.getElementById('chatBox');
+  var w = document.createElement('div'); w.className = 'msg '+role;
+  var b = document.createElement('div'); b.className = 'bubble';
+  if (role === 'user') {
+    b.textContent = text;
+  } else if (markedOk && purifyOk) {
+    b.innerHTML = DOMPurify.sanitize(marked.parse(text));
+  } else {
+    b.textContent = text;
+  }
+  w.appendChild(b); box.appendChild(w);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChat() {
+  var input = document.getElementById('chatInput');
+  var msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  addMsg('user', msg);
+  document.getElementById('chatLoading').classList.add('show');
+  try {
+    var r = await fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
+    var d = await r.json();
+    addMsg('assistant', d.response || d.detail || '(无响应)');
+  } catch(e) {
+    addMsg('assistant', '连接失败: '+e.message);
+  } finally {
+    document.getElementById('chatLoading').classList.remove('show');
+  }
+}
+
+async function ingestLocal() {
+  var dir = document.getElementById('localDir').value.trim() || 'knowledge';
+  document.getElementById('localLoading').classList.add('show');
+  document.getElementById('localResult').className = 'result';
+  try {
+    var r = await fetch('/ingest/local', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({directory:dir})});
+    var d = await r.json();
+    document.getElementById('localResult').textContent = d.message || d.error || JSON.stringify(d);
+    document.getElementById('localResult').className = 'result show';
+  } catch(e) {
+    document.getElementById('localResult').textContent = '错误: '+e.message;
+    document.getElementById('localResult').className = 'result show error';
+  } finally {
+    document.getElementById('localLoading').classList.remove('show');
+  }
+}
+
+async function searchKb() {
+  var q = document.getElementById('kbQuery').value.trim();
+  if (!q) return;
+  document.getElementById('kbLoading').classList.add('show');
+  document.getElementById('kbResult').className = 'result';
+  try {
+    var r = await fetch('/knowledge/search', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({query:q,top_k:5})});
+    var d = await r.json();
+    document.getElementById('kbResult').textContent = d.has_results ? d.context : '未找到相关内容';
+    document.getElementById('kbResult').className = 'result show';
+  } catch(e) {
+    document.getElementById('kbResult').textContent = '错误: '+e.message;
+    document.getElementById('kbResult').className = 'result show error';
+  } finally {
+    document.getElementById('kbLoading').classList.remove('show');
+  }
+}
+
+async function loadMemories(cat) {
+  document.getElementById('memLoading').classList.add('show');
+  try {
+    var url = cat ? '/memory/list?category='+cat : '/memory/list';
+    var r = await fetch(url);
+    var d = await r.json();
+    var el = document.getElementById('memoryList');
+    if (!d.memories || d.memories.length === 0) {
+      el.innerHTML = '<div class="mem-item" style="color:#999">暂无记忆</div>';
+    } else {
+      el.innerHTML = d.memories.map(function(m){return '<div class="mem-item"><span class="mem-key">'+m.key+'</span>: '+m.value+'<span class="mem-cat">'+m.category+'</span></div>';}).join('');
+    }
+  } catch(e) {
+    document.getElementById('memoryList').innerHTML = '<div class="mem-item" style="color:#c0392b">加载失败</div>';
+  } finally {
+    document.getElementById('memLoading').classList.remove('show');
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# FastAPI
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# LangGraph
+langgraph==0.2.64
+
+# LLM
+httpx==0.28.1
+
+# 向量库
+chromadb==0.6.3
+
+# 配置
+pydantic-settings==2.7.1
+pyyaml==6.0.2
+
+# 网页抓取
+beautifulsoup4==4.13.3
+html2text==2024.2.26
+
+# 工具
+python-multipart==0.0.20

@@ -1,0 +1,22 @@
+# 需要监控的 AI文档来源
+
+sources:
+  - name: OpenAI Docs
+    type: docs
+    url: https://platform.openai.com/docs
+    tags: ["openai", "api", "llm"]
+
+  - name: Anthropic Docs
+    type: docs
+    url: https://docs.anthropic.com/
+    tags: ["anthropic", "claude", "api"]
+
+  - name: LangGraph Docs
+    type: docs
+    url: https://docs.langchain.com/oss/python/langgraph
+    tags: ["langgraph", "agent", "memory"]
+
+  - name: Chroma Docs
+    type: docs
+    url: https://docs.trychroma.com/
+    tags: ["rag", "vector-db"]
