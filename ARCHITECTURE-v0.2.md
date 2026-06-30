@@ -37,10 +37,8 @@ flowchart TB
     subgraph Graph["LangGraph 工作流 (agent/graph.py)"]
         direction TB
         RC[ReAct 循环<br/>create_react_agent]
-        QG[qwen_generate<br/>?? Qwen 流式生成]
-        ES[execute_tools<br/>工具执行]
-        SYN[synthesize<br/>答案整合]
-        FIN[finalize<br/>?? 程序:保存+输出]
+        AGENT[agent 节点<br/>LLM 决策 + 生成]
+        TOOLS_NODE[tools 节点<br/>工具执行]
     end
 
     subgraph Models["模型层"]
@@ -52,11 +50,12 @@ flowchart TB
         CHROMA[(ChromaDB<br/>知识库向量)]
     end
 
-    subgraph Tools["工具层"]
+    subgraph ToolFuncs["工具层"]
         SAVE[save_memory]
-        DELETE[delete_memory]
-        LIST[list_memories]
+        DELETE_M[delete_memory]
+        LIST_M[list_memories]
         SEARCH[search_knowledge]
+        DELETE_ALL[delete_all_memories]
     end
 
     %% 前端 → API
@@ -73,25 +72,24 @@ flowchart TB
     REST --> RC
     SSE_API --> RC
 
-    %% Graph 流程
-    RC --> QG
-    QG --> ES
-    ES --> RC
-    RC --> SYN
-    SYN --> FIN
+    %% Graph 流程 (create_react_agent 内置循环)
+    RC --> AGENT
+    AGENT --> TOOLS_NODE
+    TOOLS_NODE --> AGENT
+    AGENT --> RC
 
     %% 模型绑定
-    QG --> QWEN
-    ES --> QWEN
+    AGENT --> QWEN
 
     %% 工具调用
-    QG --> Tools
-    ES --> Tools
+    AGENT --> ToolFuncs
+    TOOLS_NODE --> ToolFuncs
 
     %% 工具 → 存储
     SAVE --> SQL
-    DELETE --> SQL
-    LIST --> SQL
+    DELETE_M --> SQL
+    LIST_M --> SQL
+    DELETE_ALL --> SQL
     SEARCH --> CHROMA
 
     %% 存储 → Graph
@@ -99,32 +97,26 @@ flowchart TB
     CHROMA --> RC
 
     style RC fill:#e1f5fe,stroke:#0288d1
-    style QG fill:#fff3e0,stroke:#f57c00
-    style ES fill:#fff3e0,stroke:#f57c00
-    style SYN fill:#fff3e0,stroke:#f57c00
-    style FIN fill:#e8f5e9,stroke:#388e3c
+    style AGENT fill:#fff3e0,stroke:#f57c00
+    style TOOLS_NODE fill:#fff3e0,stroke:#f57c00
 ```
 
 ### LangGraph 工作流（ReAct 循环）
 
+create_react_agent 自动构建的图结构包含两个核心节点：
+
+1. **agent 节点** — LLM 决策：分析用户输入，决定是否调用工具，或直接生成回答
+2. **tools 节点** — 工具执行：执行 agent 请求的工具调用，将结果返回给 agent
+
 ```mermaid
 stateDiagram-v2
-    [*] --> validate_request
-    validate_request --> load_context
-    load_context --> operation_gate
-    
-    operation_gate --> agent : 自然语言
-    operation_gate --> execute_direct : 确定性操作
-    
+    [*] --> agent : 用户输入
     agent --> tools : 有 tool_calls
-    agent --> finalize : 无 tool_calls
-    
-    tools --> agent : 工具执行完成
-    
-    execute_direct --> finalize
-    
-    finalize --> [*]
+    agent --> [*] : 无 tool_calls (输出最终回答)
+    tools --> agent : 工具结果返回
 ```
+
+循环持续直到 agent 输出不包含 tool_calls 的消息，或达到 remaining_steps 上限。
 
 ---
 
@@ -236,15 +228,37 @@ class ChromaStore:
 #### memory/sqlite_store.py — SQLite 存储
 
 ```python
-class SQLiteStore:
-    def save_memory(self, key: str, value: str, category: str = "preference"):
-        """保存记忆"""
-        # INSERT OR REPLACE
+class SqliteStore:
+    def save_memory(self, key: str, value: str, category: str = ""):
+        """保存一条长期记忆，key 重复则更新（INSERT OR REPLACE）"""
         ...
-    
-    def list_memories(self, category: str = None):
-        """列出记忆"""
-        # SELECT with optional category filter
+
+    def get_memory(self, key: str) -> dict | None:
+        """按 key 查询一条记忆"""
+        ...
+
+    def list_memories(self, category: str | None = None) -> list[dict]:
+        """列出所有记忆，可按分类筛选"""
+        ...
+
+    def delete_memory(self, key: str) -> bool:
+        """删除一条记忆，返回是否成功"""
+        ...
+
+    def create_conversation(self, title: str = "新对话") -> int:
+        """创建新会话，返回会话 ID"""
+        ...
+
+    def save_message(self, conversation_id: int, role: str, content: str):
+        """保存一条消息到指定会话"""
+        ...
+
+    def get_conversation_messages(self, conversation_id: int) -> list[dict]:
+        """获取一个会话的所有消息"""
+        ...
+
+    def get_recent_conversations(self, limit: int = 10) -> list[dict]:
+        """获取最近的会话列表"""
         ...
 ```
 
@@ -293,10 +307,11 @@ class SQLiteStore:
 |------|------|----------|
 | meta | 元数据 | `{request_id, thread_id}` |
 | stage | 进度 | `{stage, message}` |
-| delta | 流式文本 | `{seq, content}` |
 | final | 最终答案 | `{content, citations}` |
 | done | 结束 | `{request_id}` |
 | error | 错误 | `{code, message, retryable}` |
+
+> **注意：** 当前实现中 LLM 的完整回答内容在 `final` 事件中一次性返回。`delta` 流式输出为未来计划。
 
 ### 事件流示例
 
@@ -326,7 +341,7 @@ data: {"event": "done", "data": {"request_id": "abc"}}
        /        \     集成测试（6 个）
       /          \    模块间协作测试
      /------------\
-    /              \  单元测试（99 个）
+    /              \  单元测试（136 个）
    /                \ 单个函数/类测试
   /__________________\
 ```
@@ -335,13 +350,13 @@ data: {"event": "done", "data": {"request_id": "abc"}}
 
 | 类型 | 数量 | 文件 |
 |------|------|------|
-| 单元测试 | 99 | test_*.py |
+| 单元测试 | 136 | test_*.py |
 | 集成测试 | 6 | test_integration.py |
 | 端到端测试 | 7 | test_e2e.py |
 | 性能测试 | 3 | test_performance.py |
 | 安全测试 | 5 | test_security.py |
 
-**总计：120 个测试，全部通过！**
+**总计：157 个测试**
 
 ---
 
@@ -362,7 +377,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 ### Docker 部署（v0.5 计划）
 
 ```dockerfile
-FROM python:3.13-slim
+FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
@@ -374,20 +389,22 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ## 七、性能指标
 
-### 响应时间
+### 响应时间（目标）
 
-| 操作 | 目标 | 实际 |
-|------|------|------|
-| 简单聊天 | < 5 秒 | ? 通过 |
-| 记忆查询 | < 1 秒 | ? 通过 |
-| 知识库搜索 | < 3 秒 | ? 通过 |
+| 操作 | 目标 |
+|------|------|
+| 简单聊天 | < 5 秒 |
+| 记忆查询 | < 1 秒 |
+| 知识库搜索 | < 3 秒 |
 
-### 并发能力
+### 并发能力（目标）
 
-| 指标 | 目标 | 实际 |
-|------|------|------|
-| 并发用户 | > 3 | ? 通过 |
-| 内存使用 | < 500MB | ? 通过 |
+| 指标 | 目标 |
+|------|------|
+| 并发用户 | > 3 |
+| 内存使用 | < 500MB |
+
+> **注意：** 以上为目标值，实际性能数据待 benchmark 测试补充（test_performance.py 已定义测试用例，待运行环境完善后填充数据）。
 
 ---
 
@@ -436,4 +453,4 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 **决策日期：** 2026-06-30
 **决策人：** Tech Lead + 用户共同审核
-**状态：** Phase 2 实施完成，所有测试通过
+**状态：** v0.2 实施完成，共 157 个测试（需完整依赖环境运行全部测试）

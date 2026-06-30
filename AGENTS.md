@@ -37,7 +37,7 @@ private-agent/
 ├── config/       # 配置
 ├── knowledge/    # 本地笔记来源
 ├── data/         # 数据存储
-├── tests/        # 测试套件（120 个测试）
+├── tests/        # 测试套件（157 个测试）
 ├── static/       # 前端文件
 └── pictures/     # 架构图
 ```
@@ -45,18 +45,18 @@ private-agent/
 ## 当前阶段
 
 ### v0.2（已完成）
-- ? ReAct 循环实现
-- ? 工具调用替代意图识别
-- ? 统一聊天管线
-- ? 完整测试套件（120 个测试）
-- ? 修复 chromadb 兼容性
-- ? 修复编码问题
+- ReAct 循环实现
+- 工具调用替代意图识别
+- 统一聊天管线
+- 完整测试套件（157 个测试）
+- 修复 chromadb 兼容性
+- 修复编码问题
 
 ### v0.3（计划中）
-- ?? Reflexion 循环
-- ?? 多 Agent 审核
-- ?? 自动提示词优化
-- ?? 定时任务和自动报告
+- Reflexion 循环
+- 多 Agent 审核
+- 自动提示词优化
+- 定时任务和自动报告
 
 ## 核心功能
 
@@ -85,13 +85,13 @@ pytest tests/ -v
 ```
 
 ### 测试类型
-- **单元测试**: 99 个
+- **单元测试**: 136 个
 - **集成测试**: 6 个
 - **端到端测试**: 7 个
 - **性能测试**: 3 个
 - **安全测试**: 5 个
 
-**总计：120 个测试，全部通过！**
+**总计：157 个测试**
 
 ## 相关文档
 
@@ -114,7 +114,7 @@ pytest tests/ -v
 
 ## 技术栈
 
-- **后端**: Python 3.13 + FastAPI
+- **后端**: Python 3.11 + FastAPI
 - **AI 框架**: LangChain + LangGraph
 - **LLM**: Ollama (Qwen2.5:7b)
 - **向量数据库**: ChromaDB
@@ -129,22 +129,22 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_CHAT_MODEL=qwen2.5:7b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 CHROMA_PATH=data/chroma
-SQLITE_PATH=data/private_agent.db
+SQLITE_PATH=data/agent.db
 ```
 
 ## 更新日志
 
 ### v0.2 (2026-06-30)
-- ? 实现 ReAct 循环
-- ? 工具调用替代意图识别
-- ? 统一聊天管线
-- ? 完整测试套件（120 个测试）
-- ? 修复 chromadb 兼容性
-- ? 修复编码问题
+- 实现 ReAct 循环
+- 工具调用替代意图识别
+- 统一聊天管线
+- 完整测试套件（157 个测试）
+- 修复 chromadb 兼容性
+- 修复编码问题
 
 ### v0.1 (2026-06-25)
-- ? FastAPI 基础框架
-- ? SQLite 存储
-- ? LangGraph 工作流
-- ? Ollama 集成
-- ? 基础聊天功能
+- FastAPI 基础框架
+- SQLite 存储
+- LangGraph 工作流
+- Ollama 集成
+- 基础聊天功能

@@ -1,5 +1,7 @@
 # private-agent v0.1 — 系统架构与实施规划
 
+> **⚠️ 历史文档：** 本文档是 v0.1 阶段的原始架构规划。实际实施过程中发生了重大架构变更（如意图路由改为 ReAct 循环、文件组织调整等）。最新架构请参阅 **[ARCHITECTURE-v0.2.md](ARCHITECTURE-v0.2.md)**。
+
 ## 一、项目定位
 
 > Claude Code 是执行手；private-agent 是知识管家。
@@ -39,8 +41,8 @@
        │                             │
 ┌──────▼─────────────────────────────▼──────────┐
 │              LLM 路由层 (llm/)                 │
-│  本地: Ollama (llama3 等)                      │
-│  远程: OpenAI/Claude API (预留)                │
+│  本地: Ollama (qwen2.5:7b)                     │
+│  远程: DeepSeek/Claude API (预留)              │
 └──────┬──────────────────────────────┬─────────┘
        │                              │
 ┌──────▼──────────┐     ┌────────────▼──────────┐
@@ -87,6 +89,8 @@ uvicorn app.main:app --reload
 # GET /memory/list → 能看到记忆
 ```
 
+> **实施备注：** 实际代码中 `config/sources.yaml`、`llm/router.py`、`llm/api_client.py` 未创建。LLM 路由策略被简化为直接使用 Ollama。
+
 ---
 
 ### Phase 2：Chroma + RAG + 本地导入（P0-P1）
@@ -108,6 +112,8 @@ POST /ingest/local → 导入 knowledge/ 下的笔记
 POST /knowledge/search → 返回相关 chunk
 /chat 中能结合知识库回答
 ```
+
+> **实施备注：** 实际代码中 `rag/ingest_web.py` 未单独创建（网页导入为 app/main.py 中的占位端点），`tools/memory_tools.py` 未创建（记忆工具直接实现在 `agent/tools.py` 中）。
 
 ---
 
@@ -131,11 +137,17 @@ POST /review/weekly → 能生成周复盘
 浏览器打开能看到 4 个入口界面
 ```
 
+> **实施备注：** Phase 3 部分提前实施：Web UI（static/index.html）已在 v0.2 构建，`/ingest/web`、`/updates/*`、`/review/weekly` 端点在 app/main.py 中作为占位 API 存在，等待后续完整实现。
+
 ---
 
 ## 四、核心模块设计
 
 ### 4.1 Agent 工作流（agent/graph.py）
+
+> **⚠️ v0.2 已改为 ReAct 循环。** 以下流程图是 v0.1 原始设计（意图路由），
+> v0.2 使用 `create_react_agent` + `bind_tools()` 替代意图判断，
+> LLM 自动决定调用哪些工具。详见 [ARCHITECTURE-v0.2.md](ARCHITECTURE-v0.2.md)。
 
 ```
 用户输入
@@ -143,7 +155,7 @@ POST /review/weekly → 能生成周复盘
   ▼
 ┌─────────────────────┐
 │ 意图判断             │
-│ (规则 + LLM 辅助)    │
+│ (规则 + LLM 辅助)    │   ← v0.2 已移除，改为 ReAct 循环
 └──────┬──────────────┘
        │
   ┌────┼────┬──────────┐
@@ -163,7 +175,7 @@ SQLite Chroma + 查Chroma  源
     保存会话
 ```
 
-**意图判断逻辑：**
+**原意图判断逻辑（v0.1，已废弃）：**
 - 包含"记住"或"remember" → memory_write
 - 包含"搜索"、"查"、"找"、"search"等 → knowledge_search
 - 包含"更新"、"检查"、"check update" → check_updates
@@ -226,29 +238,31 @@ CREATE TABLE document_updates (
 );
 ```
 
+> **备注：** 以上为 v0.1 原始设计。实际 `memory/schema.sql` 使用了 `datetime('now', 'localtime')`，`memories.category` 默认值为 `''`。`document_sources` 和 `document_updates` 表已创建但尚未在应用代码中使用。
+
 ### 4.3 Chroma Collection 设计
 
 - **Collection 名称:** `personal_knowledge`
 - **Embedding 模型:** Ollama 本地 (nomic-embed-text 或 mxbai-embed-large)
 
-**Metadata 结构：**
+**Metadata 结构（实际实现）：**
 ```python
 {
-    "doc_type": "local_note" | "web_doc" | "doc_update" | "weekly_review",
-    "source": "文件路径或 URL",
-    "topic": "主题分类",
-    "tags": "tag1,tag2",  # 逗号分隔
-    "created_at": "2026-06-25T12:00:00",
-    "updated_at": "2026-06-25T12:00:00"
+    "source": "文件名",
+    "file_path": "完整路径",
+    "topic": "父目录名",
+    "header": "Markdown 标题"
 }
 ```
+
+> **备注：** v0.1 原始设计包含 `doc_type`、`tags`、时间戳等字段，实际实现中简化为上述结构。
 
 ### 4.4 LLM 路由策略
 
 | 任务类型 | 模型 | 说明 |
 |---------|------|------|
-| 普通聊天 | Ollama 本地 (llama3 8B) | 响应快、免费 |
-| 意图判断 | Ollama 本地或规则 | 规则优先，LLM 兜底 |
+| 普通聊天 | Ollama 本地 (qwen2.5:7b) | 响应快、免费 |
+| 工具调用/决策 | Ollama (Qwen2.5:7b bind_tools) | v0.2 使用 ReAct + tool calling |
 | 文档总结 | Ollama 本地 | 轻度总结 |
 | 复杂分析 | API (预留) | OpenAI/Claude |
 | Embedding | Ollama (nomic-embed-text) | 本地生成 |
@@ -264,10 +278,10 @@ CREATE TABLE document_updates (
 | POST | `/ingest/local` | `{"directory": "knowledge/ai-agent"}` | 导入本地笔记 |
 | POST | `/ingest/web` | `{"url": "...", "topic": "..."}` | 导入网页文档 |
 | POST | `/memory/remember` | `{"key": "...", "value": "...", "category": "..."}` | 保存记忆 |
-| GET | `/memory/list` | `?category=tech_stack` | 查看记忆 |
+| GET | `/memory/list` | `category=tech_stack` | 查看记忆 |
 | POST | `/knowledge/search` | `{"query": "...", "top_k": 5}` | 搜索知识库 |
 | POST | `/updates/check` | - | 检查文档更新 |
-| GET | `/updates/recent` | `?days=7` | 查看最近更新 |
+| GET | `/updates/recent` | `days=7` | 查看最近更新 |
 | POST | `/review/weekly` | - | 生成本周复盘 |
 
 ---
@@ -302,8 +316,10 @@ CREATE TABLE document_updates (
 
 | 版本 | 新增功能 |
 |------|---------|
-| v0.1 | 基础知识库 + 记忆 + 文档监控（本阶段） |
-| v0.2 | 代码目录读取 + 项目总结 + README 生成 |
-| v0.3 | 定时任务 + 自动周报 |
+| v0.1 | 基础知识库 + 记忆 + 文档监控（已实施） |
+| v0.2 | ReAct 循环 + 工具调用 + 统一聊天管线（已完成，与原始计划不同） |
+| v0.3 | Reflexion 循环 + 多 Agent 审核 + 自动提示词优化 |
 | v0.4 | MCP Server 暴露给 Claude Code |
 | v0.5 | Docker + Tailscale + 多设备 |
+
+> **备注：** 原始 v0.2 计划为"代码目录读取 + 项目总结 + README 生成"，实际实施中优先级调整为 ReAct 循环。

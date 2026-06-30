@@ -58,7 +58,7 @@
 <body>
 <div class="header">
   <h1>Private Agent</h1>
-  <small>私人知识库管理员 v0.1</small>
+  <small>私人知识库管理员 v0.2</small>
 </div>
 <div class="nav">
   <a class="active" onclick="switchTab('chat',this)">💬 聊天</a>
@@ -162,7 +162,6 @@ async function sendChat() {
   var wrapper = document.createElement('div'); wrapper.className = 'msg assistant';
   var bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = '';
   wrapper.appendChild(bubble); box.appendChild(wrapper);
-  var rawText = '';
 
   try {
     var r = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
@@ -182,27 +181,23 @@ async function sendChat() {
         if (!line.startsWith('data: ')) continue;
         var payload = line.slice(6);
         try {
-          var data = JSON.parse(payload);
-          if (data.error) {
-            bubble.textContent = '错误: ' + data.error;
-          } else if (data.done) {
+          var env = JSON.parse(payload);
+          var evt = env.event;
+          var evtData = env.data || {};
+          if (evt === 'error') {
+            bubble.textContent = '错误: ' + (evtData.message || '未知错误');
+          } else if (evt === 'final') {
+            var content = evtData.content || '';
             if (markedOk && purifyOk) {
-              bubble.innerHTML = DOMPurify.sanitize(marked.parse(data.full || ''));
+              bubble.innerHTML = DOMPurify.sanitize(marked.parse(content));
             } else {
-              bubble.textContent = data.full || bubble.textContent;
+              bubble.textContent = content;
             }
-          } else if (data.text) {
-            // 实时渲染：收到文字就追加到原文，再用 marked 刷新显示
-            rawText += data.text;
-            if (markedOk && purifyOk) {
-              bubble.innerHTML = DOMPurify.sanitize(marked.parse(rawText));
-            } else {
-              bubble.textContent = rawText;
-            }
-          } else if (data.text) {
-            // 追加文本到气泡
-            bubble.textContent += data.text;
+          } else if (evt === 'stage') {
+            var loading = document.getElementById('chatLoading');
+            loading.textContent = evtData.stage || '处理中';
           }
+          // meta / done events don't need frontend handling
         } catch(e) {}
       }
       box.scrollTop = box.scrollHeight;
