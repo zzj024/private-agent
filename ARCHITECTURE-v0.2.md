@@ -442,6 +442,58 @@ def convert_to_sse(event: dict) -> str | None:
     return None
 ```
 
+### ⚠️ 流式实现关键决策：dispatch_custom_event vs on_chat_model_stream
+
+**2026-06-29 修订。**
+
+当前代码的 LLM 调用使用自定义 `OllamaClient`（`httpx.post` 同步调用），而 LangGraph 的 `astream_events` 要产生 `on_chat_model_stream` 事件，**节点必须调用 LangChain 的 ChatModel 接口**（如 `ChatOllama`），不能直接调 httpx。
+
+两种方案对比：
+
+| 方案 | 做法 | 优点 | 缺点 |
+|------|------|------|------|
+| A | 把 `OllamaClient` 包装成 LangChain `BaseChatModel` | 原生支持 astream_events | 工作量大，LangChain 接口复杂 |
+| B ✅ | 用 `RunnableLambda` + `writer()` 手动发 `dispatch_custom_event` | 不改 OllamaClient，改动最小 | 需手动管理事件发送 |
+
+**选择方案 B**，因为 OllamaClient 已经稳定，不需要为 LangChain 接口重构它。
+
+节点中流式发送自定义事件的写法：
+
+```python
+from langgraph.config import get_config
+from langgraph.types import StreamWriter
+
+def chat_node(state: GraphState, config: RunnableConfig, *, writer: StreamWriter):
+    """聊天节点——手动 dispatch 自定义事件实现流式"""
+    llm = get_ollama_client()
+    messages = build_messages(state)
+
+    # 1. 先发 stage 事件
+    writer({"type": "custom_event", "name": "stage",
+            "data": {"stage": "generating", "message": "正在生成回答..."}})
+
+    # 2. 流式生成 + 逐块发送 delta 事件
+    full_response = ""
+    seq = 0
+    for chunk in llm.chat_stream(settings.ollama_chat_model, messages):
+        full_response += chunk
+        seq += 1
+        writer({"type": "custom_event", "name": "delta",
+                "data": {"seq": seq, "content": chunk}})
+
+    # 3. 返回最终结果（触发 on_chain_end → convert_to_sse 发 final 事件）
+    return {
+        "final_answer": full_response,
+        "messages": [AIMessage(content=full_response)],
+    }
+```
+
+对应的 `ChatService._convert_langgraph_event()` 改动：
+
+- `on_chat_model_stream` 分支 **删除**（当前代码这个分支永远不会触发，因为节点没有用 LangChain ChatModel）
+- `on_custom_event` 分支 **新增**：捕获 `stage`、`delta` 事件
+- `on_chain_end` 分支 **保留但修正**：从 `output["final_answer"]` 读取结果（而非当前的 `output["response"]`）
+
 ---
 
 ## 四、SSE 事件协议（版本化）
@@ -652,52 +704,53 @@ async function consumeSSE(response, handlers) {
 
 ## 六、新增 AgentState
 
+> **2026-06-29 修订**：v0.2 暂缓 DeepSeek 规划+质检（延后到 v0.3），因此 `plan`、`subtasks`、`evaluation`、`subtask_answers`、`candidate_answers` 等字段移出 v0.2 的 State。当前只保留 v0.2 实际使用的字段，后续版本按需扩展。
+
 ```python
 # agent/state.py
 
-from typing import Optional, TypedDict
+from typing import TypedDict
 from langgraph.graph import MessagesState
 
 
 class GraphState(TypedDict, total=False):
-    """统一的图状态——支持规划、工具调用、检索、质检"""
+    """v0.2 图状态——仅包含当前阶段实际使用的字段"""
     # === 请求信息 ===
     request_id: str
     thread_id: str
 
-    # === 对话（用 LangGraph MessagesState 的 messages） ===
-    messages: list       # 继承 MessagesState
+    # === 对话（继承 LangGraph MessagesState 的 messages） ===
+    messages: list
     original_question: str
 
-    # === 执行计划 ===
-    execution_mode: str  # "direct" | "decompose"
-    plan: dict           # DeepSeek 输出的计划
-    subtasks: list       # 子问题列表
-
-    # === 检索 ===
-    retrieval_queries: list[str]
-    retrieved_chunks: list[dict]
-    retrieval_coverage: dict
-
-    # === 工具 ===
+    # === 工具调用 ===
     pending_tool_calls: list[dict]
     tool_results: list[dict]
     requires_confirmation: bool
 
     # === 生成结果 ===
-    subtask_answers: list[dict]
-    candidate_answers: list[dict]
     final_answer: str
-
-    # === 质检 ===
-    evaluation: dict
-    attempt: int
-    max_attempts: int
 
     # === 运行状态 ===
     stage: str
+    attempt: int
     errors: list[dict]
 ```
+
+### v0.2 vs v0.3 字段对照
+
+| 字段 | v0.2 | v0.3 | 说明 |
+|------|:----:|:----:|------|
+| `request_id`, `thread_id` | ✅ | ✅ | 请求追踪 |
+| `messages`, `original_question` | ✅ | ✅ | 对话核心 |
+| `pending_tool_calls`, `tool_results` | ✅ | ✅ | 工具调用 |
+| `requires_confirmation` | ✅ | ✅ | 破坏性操作确认 |
+| `final_answer` | ✅ | ✅ | 最终输出 |
+| `stage`, `attempt`, `errors` | ✅ | ✅ | 运行状态 |
+| `execution_mode`, `plan`, `subtasks` | ❌ | ✅ | DeepSeek 规划（v0.3） |
+| `retrieval_queries`, `retrieved_chunks`, `retrieval_coverage` | ❌ | ✅ | 检索控制器（v0.3） |
+| `subtask_answers`, `candidate_answers` | ❌ | ✅ | 多答案评估（v0.3） |
+| `evaluation`, `max_attempts` | ❌ | ✅ | 质检节点（v0.3） |
 
 ---
 
@@ -909,7 +962,9 @@ class RetrievalController:
 
 ## 九、工具调用（替代 detect_intent）
 
-### 工具定义
+> **2026-06-29 修订**：`agent/tools.py` 在 v0.1 已创建（含 5 个 `@tool` 装饰的函数），但当前 graph.py 未使用，属于死代码。v0.2 的工作是**重构**而非创建——补充 `requires_confirmation`、优化 tool description、接入 graph。
+
+### 工具定义（重构版）
 
 ```python
 # agent/tools.py
@@ -1287,10 +1342,12 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 > - 前端保持纯 HTML（暂缓到 v0.3）
 > - 新增规则兜底机制确保 tool calling 不稳时不崩
 
-### Phase 1：基础设施（先做）
+### Phase 1：基础设施（先做）⏱ 预估 4-6h
 
-- [ ] **P0-7** 创建 ChatService，统一 /chat 和 /chat/stream
-- [ ] **P0-7** 实现 graph.astream() 事件流
+- [ ] **P0-AGENTSTATE** 修复 AgentState 三方不一致（state.py / graph.py / chat_service.py 字段对齐）
+- [ ] **P0-7** 重写 ChatService（删除当前有 bug 的 chat_service.py），统一 /chat 和 /chat/stream
+- [ ] **P0-7** graph 节点改用 writer() + dispatch_custom_event 发送流式事件（见第三节方案B）
+- [ ] **ChatService** _convert_langgraph_event() 删除无效的 on_chat_model_stream 分支，新增 on_custom_event 捕获
 - [ ] **SSE** 定义完整事件协议（meta/stage/delta/final/error/done/tool_confirmation）
 - [ ] **SSE** 实现 convert_to_sse() 转换器
 - [ ] **前端** 重写 consumeSSE() 按协议块解析
@@ -1298,14 +1355,14 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 - [ ] **前端** 删除 data.text 死代码
 - [ ] **前端** 增加 inFlight 防连点
 - [ ] **前端** 实现 stage 事件展示（正在分析/检索/生成...）
-- [ ] **数据库** 建 conversations + messages + gent_runs 表
+- [ ] **数据库** 建 conversations + messages + agent_runs 表
 - [ ] **P0-3** Ollama 不可用时降级处理（全局 try/except + 友好提示）
 
-### Phase 2：核心逻辑（核心稳定目标）
+### Phase 2：核心逻辑（核心稳定目标）⏱ 预估 8-12h
 
 #### 2a：工具定义 + bind_tools（替代 detect_intent）
 
-- [ ] **P0-8** 创建 agent/tools.py，用 @tool 定义 5 个工具（search_knowledge / save_memory / list_memories / delete_memory / delete_all_memories）
+- [ ] **P0-8** 重构 agent/tools.py（已存在但为死代码），用 @tool 定义 5 个工具（search_knowledge / save_memory / list_memories / delete_memory / delete_all_memories），补充 requires_confirmation
 - [ ] **P0-8** Qwen 绑定 bind_tools(TOOLS)
 - [ ] **P0-8** 保留规则兜底（tool calling 失败时回退正则匹配）
 - [ ] **P0-8** 破坏性操作增加 requires_confirmation（delete_all_memories）
@@ -1326,14 +1383,14 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 - [ ] **对话持久化** save_message() + load_conversation()
 - [ ] **Thread ID** conversation_id 转为 LangGraph thread_id
 
-### Phase 3：检索控制 + 多来源查询（支撑能力）
+### Phase 3：检索控制 + 多来源查询（支撑能力）⏱ 预估 4-6h
 
 - [ ] **复杂度门控** complexity_gate() 规则 + Qwen 兜底
 - [ ] **检索控制器** RetrievalController 候选池 + 阈值 + 去重 + 预算
 - [ ] **多来源检索** Qwen 判断需要多来源时自动发起多次 search_knowledge
 - [ ] **查询改写** Qwen 对模糊问题进行改写后再检索
 
-### Phase 4：DeepSeek + 质量评估（后期，v0.3）
+### Phase 4：DeepSeek + 质量评估（后期，v0.3）⏱ 预估 6-10h
 
 - [ ] **DeepSeek 规划** deepseek_planner 节点（复杂问题拆解）
 - [ ] **质检节点** Evaluator.evaluate() 含证据输入
@@ -1357,15 +1414,28 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 | 先状态后正文 | 发 stage 事件 → 选定方案 → 流式正文 | 保证 final === delta 拼接 |
 | 工具调用回退 | 保留规则兜底 | tool calling 不稳时不崩 |
 | 实施节奏 | 先稳定后智能，Phase 4 延后到 v0.3 | 用户反馈的实际问题优先于理论完备性 |
+| 流式实现方案 | writer() + dispatch_custom_event（方案 B） | OllamaClient 已稳定，无需为 LangChain 接口重构；节点内手动发送自定义事件 |
 | 前端框架 | 暂缓，保持纯 HTML | 当前目标 Agent 输出稳定，不是 UI |
 | 复杂问题分级 | 简单/隐式意图/多意图/多来源/批量 五级 | 基于实际使用场景的定义 |
 | 查询改写 | Qwen 做模糊查询改写 | 用户问题不精确时提高召回率 |
 
-## 十六、第一次架构评审记录（2026-06-27）
+## 十六、2026-06-29 修订记录
+
+> 基于实施前代码审查发现的问题调整方案。
+
+| 修订项 | 原方案 | 调整后 | 原因 |
+|--------|--------|--------|------|
+| AgentState | 未纳入 Phase 1 | Phase 1 新增 P0-AGENTSTATE | state.py / graph.py / chat_service.py 三方字段不一致，是 P0 级 bug |
+| GraphState 字段 | 20+ 字段含 plan/subtasks/evaluation | 精简为 10 个 v0.2 实际使用的字段 | DeepSeek 延后到 v0.3，多余字段是 dead weight |
+| 流式实现 | 依赖 astream_events 的 on_chat_model_stream | 改用 writer() + dispatch_custom_event | OllamaClient 是 httpx 封装，不走 LangChain ChatModel，on_chat_model_stream 永远不会触发 |
+| agent/tools.py | 创建新文件 | 重构已有文件（v0.1 已存在但是死代码） | 避免创建重复文件 |
+| ChatService | 在现有基础上改 | 删除重写 | 当前 chat_service.py 有 bug（AgentState 不匹配、事件转换逻辑无效） |
+
+## 十七、第一次架构评审记录（2026-06-27）
 
 > 基于实际使用反馈的架构评审讨论
 
-### 16.1 发现的实际问题
+### 17.1 发现的实际问题
 
 用户反馈三个具体的“Agent 输出不稳定”案例：
 
@@ -1375,7 +1445,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 | 2 | “我想删除所有长期记忆” | 删除全部记忆 | 不调用删除 | extract_forget JSON 解析失败 |
 | 3 | 批量操作（记住A、B、C） | 分别保存三条 | 只处理第一条 | 当前架构一请求一意图 |
 
-### 16.2 评审结论
+### 17.2 评审结论
 
 **v0.2 架构设计正确，以上问题在新架构下自然解决：**
 
@@ -1383,7 +1453,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 2. “删除所有” delete_memory 工具参数设 delete_all=True，不依赖正则或 JSON 解析
 3. 批量操作 LangGraph 原生支持一次回复多次 tool_call，分别执行
 
-### 16.3 复杂问题重新定义
+### 17.3 复杂问题重新定义
 
 基于实际使用，将问题按复杂度分为五级：
 
@@ -1397,7 +1467,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 **前四级由 Qwen 处理，无需 DeepSeek。**
 
-### 16.4 实施节奏调整
+### 17.4 实施节奏调整
 
 从原来的三阶段改为四阶段：
 
@@ -1414,19 +1484,19 @@ Phase 4：智能增强  DeepSeek + 质量评估（v0.3）
 - tool calling 保留规则兜底
 - 当前目标：Agent 输出稳定优先
 
-### 16.5 下一步工作
+### 17.5 下一步工作
 
 从 Phase 1 开始实施：「ChatService 统一消息管线」
 
 
 
-## 十七、第二次架构评审与优化记录（2026-06-27 第二版）
+## 十八、第二次架构评审与优化记录（2026-06-27 第二版）
 
 > 基于 Phase 1 实施过程中的讨论，对 Phase 2 方案做了重要优化。
 > 
 > **核心变化：任务分解 + ReAct 循环替代 DeepSeek 子问题规划**
 
-### 17.1 为什么需要调整
+### 18.1 为什么需要调整
 
 原方案的 Phase 2 规划图：
 
@@ -1439,7 +1509,7 @@ Phase 4：智能增强  DeepSeek + 质量评估（v0.3）
 2. **数据库调用多** — 子问题各自查知识库，同类查询无法合并
 3. **DeepSeek 依赖** — 每次复杂问题都要走 API，成本和延迟增加
 
-### 17.2 优化后的方案
+### 18.2 优化后的方案
 
 `
 用户输入
@@ -1460,7 +1530,7 @@ Qwen + bind_tools()
     合成最终回答
 `
 
-### 17.3 关键区别
+### 18.3 关键区别
 
 | 维度 | 原方案 | 优化方案 |
 |------|--------|----------|
@@ -1472,7 +1542,7 @@ Qwen + bind_tools()
 | 数据库调用 | 多次独立查询 | 同类型合并，按需调用 |
 | 失败处理 | DeepSeek 重规划（再次 API 调用） | 循环内重试（无额外开销） |
 
-### 17.4 解决了哪些实际问题
+### 18.4 解决了哪些实际问题
 
 | # | 用户输入 | 原方案行为 | 新方案行为 |
 |---|---------|-----------|-----------|
@@ -1481,7 +1551,7 @@ Qwen + bind_tools()
 | 3 | 记住A、B、C三点 | 只处理第一个点 | 一次分解 3 个 task，循环逐个执行 |
 | 4 | Redis 和数据库的区别 | 一次检索可能不全 | 自动判断需要多来源 → 多次 search_knowledge → 合成 |
 
-### 17.5 Phase 2 实施步骤（优化版）
+### 18.5 Phase 2 实施步骤（优化版）
 
 `
 Step 1: agent/tools.py     — @tool 定义 5 个工具
@@ -1492,7 +1562,7 @@ Step 5: 对话持久化          — SQLite 历史消息加载
 Step 6: 端到端测试          — 验证多意图 + 批量操作
 `
 
-### 17.6 不做的事情
+### 18.6 不做的事情
 
 - ❌ **不引入 DeepSeek 规划** — Qwen 的 tool calling 足以处理前 4 级复杂度
 - ❌ **不拆子问题** — 改为拆 Task（直接可执行的操作单元），减少一次语义转换

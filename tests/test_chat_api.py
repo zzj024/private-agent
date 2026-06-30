@@ -1,5 +1,5 @@
 # tests/test_chat_api.py
-# 职责：测试 /chat 和 /chat/stream 端点在 ChatService 改造后的行为
+# Responsibility: Test /chat and /chat/stream endpoints after ChatService refactoring
 
 import pytest
 import json
@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 
 class _AsyncIter:
-    """让普通列表能被 async for 遍历"""
+    """Allow normal list to be traversed by async for"""
     def __init__(self, items):
         self._items = list(items)
     def __aiter__(self):
@@ -19,27 +19,27 @@ class _AsyncIter:
 
 
 class TestChatEndpoint:
-    """测试 POST /chat 的行为"""
+    """Test POST /chat behavior"""
 
     @pytest.fixture
     def mock_chat_service(self):
         with patch("app.main.chat_service") as mock:
             mock.stream_events = MagicMock(return_value=_AsyncIter([
-                json.dumps({"event": "meta", "data": {"request_id": "r1", "conversation_id": "42"}}),
-                json.dumps({"event": "stage", "data": {"stage": "正在分析...", "message": ""}}),
-                json.dumps({"event": "final", "data": {"content": "这是答案", "citations": []}}),
+                json.dumps({"event": "meta", "data": {"request_id": "r1", "thread_id": "42"}}),
+                json.dumps({"event": "stage", "data": {"stage": "Analyzing...", "message": ""}}),
+                json.dumps({"event": "final", "data": {"content": "This is the answer", "citations": []}}),
             ]))
             yield mock
 
     def test_chat_returns_response_json(self, client, mock_chat_service):
-        resp = client.post("/chat", json={"message": "你好"})
+        resp = client.post("/chat", json={"message": "hello"})
         assert resp.status_code == 200
-        assert resp.json()["response"] == "这是答案"
+        assert resp.json()["response"] == "This is the answer"
 
     def test_chat_with_conversation_id(self, client, mock_chat_service):
-        resp = client.post("/chat", json={"message": "你好", "conversation_id": 42})
+        resp = client.post("/chat", json={"message": "hello", "conversation_id": "42"})
         assert resp.status_code == 200
-        mock_chat_service.stream_events.assert_called_with("你好", conversation_id=42)
+        mock_chat_service.stream_events.assert_called_with("hello", conversation_id="42")
 
     def test_chat_empty_message_returns_200(self, client, mock_chat_service):
         mock_chat_service.stream_events.return_value = _AsyncIter([
@@ -52,7 +52,7 @@ class TestChatEndpoint:
 
     def test_chat_error_returns_500(self, client, mock_chat_service):
         mock_chat_service.stream_events.side_effect = RuntimeError("Ollama down")
-        resp = client.post("/chat", json={"message": "你好"})
+        resp = client.post("/chat", json={"message": "hello"})
         assert resp.status_code == 500
         assert "Ollama" in resp.json()["detail"]
 
@@ -60,13 +60,13 @@ class TestChatEndpoint:
         mock_chat_service.stream_events.return_value = _AsyncIter([
             json.dumps({"event": "meta", "data": {}}),
         ])
-        resp = client.post("/chat", json={"message": "你好"})
+        resp = client.post("/chat", json={"message": "hello"})
         assert resp.status_code == 200
         assert resp.json()["response"] is None
 
 
 class TestChatStreamEndpoint:
-    """测试 POST /chat/stream 的行为"""
+    """Test POST /chat/stream behavior"""
 
     @pytest.fixture
     def mock_chat_service(self):
@@ -77,21 +77,21 @@ class TestChatStreamEndpoint:
         mock_chat_service.stream_events.return_value = _AsyncIter([
             json.dumps({"event": "meta", "data": {}}),
         ])
-        resp = client.post("/chat/stream", json={"message": "你好"})
+        resp = client.post("/chat/stream", json={"message": "hello"})
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
 
     def test_stream_events_forwarded_to_sse(self, client, mock_chat_service):
         mock_chat_service.stream_events.return_value = _AsyncIter([
             json.dumps({"event": "meta", "data": {"request_id": "r1"}}),
-            json.dumps({"event": "delta", "data": {"seq": 1, "content": "你"}}),
-            json.dumps({"event": "delta", "data": {"seq": 2, "content": "好"}}),
+            json.dumps({"event": "stage", "data": {"stage": "Thinking...", "message": ""}}),
+            json.dumps({"event": "final", "data": {"content": "Answer", "citations": []}}),
         ])
-        resp = client.post("/chat/stream", json={"message": "你好"})
+        resp = client.post("/chat/stream", json={"message": "hello"})
         assert resp.status_code == 200
         lines = resp.text.strip().split("\n\n")
         assert len(lines) == 3
-        # 每行以 data: 开头
+        # Each line starts with "data: "
         for line in resp.text.strip().split("\n\n"):
             assert line.startswith("data: ")
             event = json.loads(line.replace("data: ", ""))
@@ -113,9 +113,9 @@ class TestChatStreamEndpoint:
         mock_chat_service.stream_events.return_value = _AsyncIter([
             json.dumps({"event": "meta", "data": {}}),
         ])
-        resp = client.post("/chat/stream", json={"message": "hi", "conversation_id": 99})
+        resp = client.post("/chat/stream", json={"message": "hi", "conversation_id": "99"})
         assert resp.status_code == 200
-        mock_chat_service.stream_events.assert_called_with("hi", conversation_id=99)
+        mock_chat_service.stream_events.assert_called_with("hi", conversation_id="99")
 
 
 @pytest.fixture

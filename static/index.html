@@ -73,7 +73,7 @@
     <div class="chat-box" id="chatBox"></div>
     <div class="input-row">
       <input id="chatInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()">
-      <button onclick="sendChat()">发送</button>
+      <button id="sendBtn" onclick="sendChat()">发送</button>
     </div>
     <div class="loading" id="chatLoading">思考中</div>
   </div>
@@ -112,6 +112,7 @@
       <button class="btn-sm" onclick="loadMemories('weak_point')">薄弱点</button>
       <button class="btn-sm" onclick="loadMemories('goal')">目标</button>
       <button class="btn-sm" onclick="loadMemories('preference')">偏好</button>
+      <button class="btn-sm" onclick="deleteAllMem()" style="background:#c0392b;color:#fff;float:right">清空所有</button>
     </div>
     <div id="memoryList"></div>
     <div class="loading" id="memLoading">加载中</div>
@@ -153,14 +154,63 @@ async function sendChat() {
   if (!msg) return;
   input.value = '';
   addMsg('user', msg);
+  document.getElementById('sendBtn').disabled = true;
   document.getElementById('chatLoading').classList.add('show');
+
+  // 先创建一个空的 assistant 气泡
+  var box = document.getElementById('chatBox');
+  var wrapper = document.createElement('div'); wrapper.className = 'msg assistant';
+  var bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = '';
+  wrapper.appendChild(bubble); box.appendChild(wrapper);
+  var rawText = '';
+
   try {
-    var r = await fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
-    var d = await r.json();
-    addMsg('assistant', d.response || d.detail || '(无响应)');
+    var r = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
+    var reader = r.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+
+    while (true) {
+      var {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+
+      var lines = buffer.split('\n');
+      buffer = lines.pop() || '';  // 未完成的行留在 buffer
+
+      for (var line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        var payload = line.slice(6);
+        try {
+          var data = JSON.parse(payload);
+          if (data.error) {
+            bubble.textContent = '错误: ' + data.error;
+          } else if (data.done) {
+            if (markedOk && purifyOk) {
+              bubble.innerHTML = DOMPurify.sanitize(marked.parse(data.full || ''));
+            } else {
+              bubble.textContent = data.full || bubble.textContent;
+            }
+          } else if (data.text) {
+            // 实时渲染：收到文字就追加到原文，再用 marked 刷新显示
+            rawText += data.text;
+            if (markedOk && purifyOk) {
+              bubble.innerHTML = DOMPurify.sanitize(marked.parse(rawText));
+            } else {
+              bubble.textContent = rawText;
+            }
+          } else if (data.text) {
+            // 追加文本到气泡
+            bubble.textContent += data.text;
+          }
+        } catch(e) {}
+      }
+      box.scrollTop = box.scrollHeight;
+    }
   } catch(e) {
-    addMsg('assistant', '连接失败: '+e.message);
+    bubble.textContent = '连接失败: '+e.message;
   } finally {
+    document.getElementById('sendBtn').disabled = false;
     document.getElementById('chatLoading').classList.remove('show');
   }
 }
@@ -210,12 +260,32 @@ async function loadMemories(cat) {
     if (!d.memories || d.memories.length === 0) {
       el.innerHTML = '<div class="mem-item" style="color:#999">暂无记忆</div>';
     } else {
-      el.innerHTML = d.memories.map(function(m){return '<div class="mem-item"><span class="mem-key">'+m.key+'</span>: '+m.value+'<span class="mem-cat">'+m.category+'</span></div>';}).join('');
+      el.innerHTML = d.memories.map(function(m){return '<div class="mem-item"><span class="mem-key">'+m.key+'</span>: '+m.value+'<span class="mem-cat">'+m.category+'</span> <button class="btn-sm" onclick="deleteMem(\''+m.key+'\')" style="float:right;padding:2px 8px;font-size:11px;background:#c0392b">删除</button></div>';}).join('');
     }
   } catch(e) {
     document.getElementById('memoryList').innerHTML = '<div class="mem-item" style="color:#c0392b">加载失败</div>';
   } finally {
     document.getElementById('memLoading').classList.remove('show');
+  }
+}
+
+async function deleteMem(key) {
+  if (!confirm('确定删除 "'+key+'" 吗？')) return;
+  try {
+    await fetch('/memory/delete/'+encodeURIComponent(key), {method:'DELETE'});
+    loadMemories('');
+  } catch(e) {
+    alert('删除失败: '+e.message);
+  }
+}
+
+async function deleteAllMem() {
+  if (!confirm('确定清空所有记忆吗？')) return;
+  try {
+    await fetch('/memory/delete-all', {method:'DELETE'});
+    loadMemories('');
+  } catch(e) {
+    alert('清空失败: '+e.message);
   }
 }
 </script>

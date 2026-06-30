@@ -12,12 +12,14 @@ from app.chat_service import ChatService
 import json
 
 chat_service = ChatService()
+
+
 # 请求/响应模型
 # ═══════════════════════════════════════════════
 
 class ChatRequest(BaseModel):
     message: str
-    conversation_id: int | None = None
+    conversation_id: str | None = None  # 改为 str 类型
 
 class RememberRequest(BaseModel):
     key: str
@@ -35,6 +37,7 @@ class IngestWebRequest(BaseModel):
     url: str
     topic: str = ""
 
+
 # ═══════════════════════════════════════════════
 # 创建应用
 # ═══════════════════════════════════════════════
@@ -42,6 +45,7 @@ class IngestWebRequest(BaseModel):
 app = FastAPI(title="Private Agent", version="0.1.0")
 
 from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -52,9 +56,11 @@ app.add_middleware(
 
 # 挂载静态文件目录
 import os
+
 _static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 os.makedirs(_static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
 
 # ═══════════════════════════════════════════════
 # 路由
@@ -91,25 +97,27 @@ async def chat(req: ChatRequest):
         final_response = None
         async for event_str in chat_service.stream_events(req.message, conversation_id=req.conversation_id):
             event = json.loads(event_str)
+            # 只关心 final 事件（LLM 的最终回复）
             if event["event"] == "final":
                 final_response = event["data"]["content"]
         return {"response": final_response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """流式聊天——ChatService 事件转 SSE"""
     async def event_generator():
         async for event_str in chat_service.stream_events(req.message, conversation_id=req.conversation_id):
+            # 逐条推送所有事件（meta、stage、final、done）
             yield f"data: {event_str}\n\n"
-    
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
     )
 
-    
 
 @app.post("/memory/remember")
 def remember(req: RememberRequest):

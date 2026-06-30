@@ -116,14 +116,14 @@ private-agent/
 
 ## 版本规划
 
-| 版本 | 功能 |
-|------|------|
-| v0.1 | FastAPI 基础 + SQLite 记忆 + LangGraph 意图路由 + Ollama 聊天 |
-| v0.2 | Chroma RAG + 本地笔记导入 + 知识库检索 + ChatService 统一管线 |
-| v0.2-opt | Tool calling + ReAct 循环替代 detect_intent，混合意图支持 |
-| v0.3 | 网页导入 + 更新监控 + DeepSeek 质量评估 + 前端框架 |
-| v0.4 | MCP Server 暴露给 Claude Code |
-| v0.5 | Docker + Tailscale |
+| 版本 | 功能 | 状态 |
+|------|------|:----:|
+| v0.1 | FastAPI 基础 + SQLite 记忆 + LangGraph 意图路由 + Ollama 聊天 | ✅ 完成 |
+| v0.2 | Chroma RAG + 本地笔记导入 + 知识库检索 + ChatService 统一管线 | ✅ 完成 |
+| v0.2-opt | Tool calling + ReAct 循环替代 detect_intent，混合意图支持，对话持久化 | 🔧 进行中 |
+| v0.3 | 检索控制器 + DeepSeek 质量评估 + 前端框架 | 📋 规划 |
+| v0.4 | MCP Server 暴露给 Claude Code | 📋 规划 |
+| v0.5 | Docker + Tailscale | 📋 规划 |
 
 ---
 ---

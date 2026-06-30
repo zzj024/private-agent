@@ -135,6 +135,62 @@ Agent：已记住：前端 = CSS
 
 ---
 
+### ⚠️ [P0-6] Agent 问答可靠性差（核心痛点）
+
+**⚠️ 重要：这是当前最严重的问题，必须先解决再谈其他功能。**
+
+**问题清单：**
+
+1. **意图识别不可靠**
+   - 同样的句子有时走 remember，有时走 chat
+   - "删除所有长期记忆"有时被当成 chat 而非 forget
+   - qwen2.5:7b 对 JSON 输出格式不稳定，经常返回非 JSON 文本
+
+2. **记忆提取质量差**
+   - LLM 提取 key/value 时经常返回 `key="note"`，而不是有意义的类别
+   - "我叫查志俊" → 可能存成 `note=我叫查志俊` 而不是 `姓名=查志俊`
+   - 同一个意思换种说法就提取失败
+
+3. **知识库上下文被 LLM 忽略**
+   - LLM 经常不引用 `<knowledge_context>` 中的内容
+   - 知识库里有相关内容时，LLM 仍然用自己的知识回答
+   - KNOWLEDGE_POLICY 提示词效果有限
+
+4. **格式化输出不稳定**
+   - LLM 有时用 `**` 标记，有时不用
+   - 编号列表有时换行有时不换
+   - 即使 SYSTEM_PROMPT 明确要求格式，也不一定遵守
+
+5. **规则与 LLM 兜底的冲突**
+   - 规则匹配到"删除"后不走 LLM 提取 key，导致删除失败
+   - 规则匹配到"放入长期记忆"后不走 LLM 提取 key/value
+   - 规则和 LLM 之间的衔接不够平滑
+
+**根因分析：**
+- 本地 qwen2.5:7b 在指令跟随、JSON 输出、格式控制方面能力有限
+- 规则系统覆盖不全，LLM 兜底不稳定
+- 缺乏对 LLM 输出的后处理校验
+
+**尝试过的修复（效果有限）：**
+- REMEMBER_PATTERNS 增加了更多关键词
+- _extract_remember 增加后缀清洗
+- save_memory 增加正则兜底提取
+- KNOWLEDGE_POLICY + `<knowledge_context>` 结构化
+- normalize_answer 后端格式化
+
+**推荐修复方案：**
+1. 规则优先 + LLM 兜底 + 输出校验三段式（规则覆盖 80% 常见场景）
+2. LLM 输出必须经过 JSON 校验，失败时重试或降级
+3. 考虑升级模型（qwen2.5:14b 或接 GPT/Claude API）
+4. 知识库上下文增加引用标记验证（检查回答中是否包含 [K1] 引用）
+5. 记忆提取改用专门的 key 匹配规则而非全盘交给 LLM
+
+**影响范围：** 全局 — 所有依赖 LLM 判断的功能
+**引入版本：** v0.1（持续至今）
+**优先级：** 🔴 **最高**
+
+---
+
 ## P1（中优先级 — 可维护性和扩展性）
 
 ### [P1-1] 模型名硬编码
@@ -418,18 +474,64 @@ $ uvicorn app.main:app
 
 ### [P2-1] 流式响应
 
-**问题描述：**
-目前 `/chat` 等模型生成完才返回，用户体验差。
+**状态：** ✅ v0.2 已实现
 
-**修复方向：**
-- FastAPI 用 `StreamingResponse`
-- Graph 增加 stream 模式
+---
+
+### [P2-2] 对话管理（历史会话列表）
+
+**问题描述：**
+目前每次聊天都是独立的，刷新页面丢失所有对话历史。没有会话列表无法切换回之前的对话。
+
+```
+当前：
+  1 个对话框，发完刷新就没了
+  不支持查看历史对话
+  conversation_id 传了但没用
+
+期望（像 ChatGPT）：
+  左侧对话列表
+  点击切换历史对话
+  标题自动截取第一句
+  支持改名、删除
+  新消息自动保存
+```
+
+**设计方案：**
+
+后端接口：
+- `GET /conversations` — 获取会话列表
+- `POST /conversations` — 新建会话
+- `GET /conversations/{id}` — 获取某会话的消息
+- `PATCH /conversations/{id}` — 改标题/改名
+- `DELETE /conversations/{id}` — 删除会话
+
+graph.py 改动：
+```
+detect_intent 时：
+  - 如果 conversation_id 为空，新建会话
+  - 如果不为空，续接已有会话
+
+chat node 时：
+  - 从 SQLite 加载最近 10 条消息作为上下文
+  - 生成回答后，将 user msg + assistant reply 存入 SQLite
+```
+
+前端 UI：
+```
+左侧面板：对话列表 + 新建按钮
+主面板：聊天区域
+每条对话可右键改名/删除
+标题自动取第一条消息的前 20 字
+```
+
+**影响范围：** `app/main.py`、`agent/graph.py`、`static/index.html`、`memory/sqlite_store.py`
 
 **引入版本：** v0.3
 
 ---
 
-### [P2-2] 意图类型太少
+### [P2-3] 意图类型太少
 
 **问题描述：**
 目前只支持 `remember`、`list`、`chat` 三种意图。
@@ -518,6 +620,27 @@ $ uvicorn app.main:app
 
 ---
 
+### [P2-8] 查询拆分（Query Decomposition）
+
+**问题描述：**
+用户一句话包含多个知识点时，作为一个整体检索效果差。
+
+```
+用户："讲一下 HashMap、Redis 分布式锁、线程池"
+当前：整体检索 → 只找到其中一个
+期望：拆成 3 个子查询 → 分别检索 → 汇总
+```
+
+**修复方向：**
+- chat node 前加 "query_decomposer" node
+- LLM 将问题拆成 N 个子查询
+- 各子查询独立检索知识库
+- 合并后交给 LLM 回答
+
+**引入版本：** v0.3
+
+---
+
 ## P3（远期构想）
 
 ### [P3-1] 多 Agent 协作
@@ -534,11 +657,138 @@ $ uvicorn app.main:app
 
 ---
 
+### [P3-4] 查询拆分 + 多 Agent 审核循环
+
+**问题描述：**
+用户一次提问多个知识点时，当前只能当作单一问题处理。
+
+```
+用户：给我讲一下数据库、Agent、Java 后端的知识点
+期望：
+  1. 拆成 3 个子问题 → 分别检索知识库
+  2. 每个子问题独立生成回答
+  3. 审核员评分，低于阈值则重试（最多 3 次，取最高分）
+  4. 汇总成完整回答
+```
+
+**设计方案：**
+```
+用户提问 → Query Decomposer（LLM 拆分）
+  ├─ 子问题1 → Agent生成 → Reviewer打分 → 不达标? → 重试 ↺
+  ├─ 子问题2 → Agent生成 → Reviewer打分 → 不达标? → 重试 ↺
+  └─ 子问题3 → Agent生成 → Reviewer打分 → 不达标? → 重试 ↺
+  → 汇总器 → 回答
+```
+
+**关键点：**
+- 审核员用独立 system prompt（"严格评审，只打分不说话"）
+- 评分维度：相关性(0-5) + 准确性(0-5) + 完整性(0-5)
+- 总分 < 10 则重试
+- LangGraph `for` 循环 + `conditional_edge` 实现
+
+**引入版本：** v0.3+
+
+---
+
+### [P3-5] 自优化提示词（Reflexion Loop）
+
+**问题描述：**
+Agent 不会从失败中学习，同样的问题第二次还是同样的错误。
+
+**方案：**
+```
+1. Agent 生成回答
+2. 审核员指出不足（代码语法、引用缺失、格式错误等）
+3. Agent 根据反馈修改回答
+4. 循环直到通过或最大次数
+```
+
+**适用场景：** 代码生成、JSON 输出、知识库引用检查
+**不适用：** 主观创意类、本地小模型自我反思
+
+**引入版本：** v0.4+
+
+---
+
+---
+
+## v0.2 架构变更（已设计，待实施）
+
+### [P0-AGENTSTATE] AgentState 三方定义不一致（2026-06-29 新增）
+
+**问题描述：**
+`state.py`、`graph.py`、`chat_service.py` 三个文件对 AgentState 的字段定义和使用完全不匹配：
+
+| 文件 | 定义的/期望的字段 | 实际读写 |
+|------|------------------|---------|
+| `agent/state.py` | `message`, `conversation_id`, `response`, `pending_tool_calls`, `execution_mode` | — |
+| `agent/graph.py` | — | `message`, `conversation_id`, `intent`, `extracted_key`, `extracted_value`, `response` |
+| `app/chat_service.py` | — | `messages`（HumanMessage 列表）, `original_question`, `request_id` |
+
+**影响：**
+- `chat_service.py` 传 `messages`（列表）但 graph 读 `message`（字符串），SSE 流式路径实际跑不通
+- `pending_tool_calls` 和 `execution_mode` 字段定义了但没有任何代码使用
+- 三个模块各写各的，没有统一的契约
+
+**修复方案（v0.2 Phase 1）：**
+- 删除 `agent/state.py` 中的无用字段
+- 改用 ARCHITECTURE-v0.2.md 第六节定义的 v0.2 版 GraphState
+- `chat_service.py` 和 `graph.py` 统一使用新 State
+- `graph.py` 中旧的 `intent`/`extracted_key`/`extracted_value` 字段在 Phase 2 用 tool calling 替代后移除
+
+**影响范围：** `agent/state.py`、`agent/graph.py`、`app/chat_service.py`
+**引入版本：** v0.1（持续至今）
+**优先级：** 🔴 **P0 — 阻塞 Phase 1**
+
+---
+
+### [P0-7] 双聊天执行管线导致行为不一致
+
+**问题描述：**
+`/chat` 和 `/chat/stream` 是两条独立的业务管线。
+- `/chat` 走 LangGraph 完整工作流（intent 检测 + 记忆操作 + 知识库检索）
+- `/chat/stream` 内联实现，完全绕过 LangGraph
+- 流式聊天不支持记忆保存、删除等操作
+- 两条路径的消息组装逻辑重复
+
+**影响范围：** `app/main.py`、`agent/graph.py`、`static/index.html`
+
+**修复方案（v0.2）：**
+- 引入 `ChatService` 统一消息管线
+- `/chat` 和 `/chat/stream` 都调 `ChatService.stream_events()`
+- `/chat` 收集最终结果后返回 JSON
+- `/chat/stream` 逐 event 转 SSE（graph.astream → SSE）
+
+**详细方案：** `ARCHITECTURE-v0.2.md` 第三节
+
+**引入版本：** v0.2
+
+---
+
+### [P0-8] detect_intent 已被工具调用替代
+
+**问题描述：**
+当前 `detect_intent` 节点让 LLM 输出一个模糊的 `intent` 字符串（chat/remember/forget/list），然后根据字符串路由。这个中间层提供的信息有限，而且 qwen2.5:7b 的 JSON 输出不稳定，经常解析失败。
+
+**修复方案（v0.2）：**
+- 删除独立的 `detect_intent` 节点
+- Qwen 直接绑定 `bind_tools()`，输出结构化 tool_calls
+- 确定性 UI 操作（点击按钮）不走 LLM，直接调 API
+- 破坏性操作（delete_all_memories）需要 `requires_confirmation`
+
+**影响范围：** `agent/graph.py`、`agent/prompts.py`、`agent/state.py`
+
+**详细方案：** `ARCHITECTURE-v0.2.md` 第九节
+
+**引入版本：** v0.2
+
+---
+
 ## 修复路线图
 
 | 版本 | 修复项 |
 |------|--------|
 | v0.1（当前） | P0-3（Ollama 不可用降级） |
-| v0.2 | P0-1（混合意图）、P0-2（多轮记忆）、P1-3（会话管理）、P0-3、P2-7 |
-| v0.3 | P1-1（模型名配置化）、P1-2（JSON 解析）、P2-1（流式）、P2-3（Agent 检索）、P2-5（安全） |
+| v0.2 | P0-1（混合意图）、P0-2（多轮记忆）、P0-7（双管线统一）、P0-8（工具调用替代intent）、P1-3（会话管理）、P2-1（流式协议标准化） |
+| v0.3 | P2-2（对话管理）、P1-1（模型名配置化）、P1-2（JSON 解析）、P2-3（Agent 检索）、P2-5（安全） |
 | v0.4+ | P3 系列 |
