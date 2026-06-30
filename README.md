@@ -1,184 +1,81 @@
-<p align="center">
-  <h1 align="center">Private Agent</h1>
-  <p align="center"><i>本地 LLM 驱动的私人知识管家 —— 从零构建的 AI Agent 实践</i></p>
-</p>
+# Private Agent
 
-<p align="center">
-  <img src="https://img.shields.io/badge/version-v0.2-blue" alt="version">
-  <img src="https://img.shields.io/badge/tests-157-green" alt="tests">
-  <img src="https://img.shields.io/badge/python-3.11-blue" alt="python">
-  <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="license">
-  <img src="https://img.shields.io/badge/LLM-Qwen2.5:7b-orange" alt="llm">
-</p>
+本地 LLM 驱动的私人知识管家 —— 从零构建的 AI Agent，具备长期记忆、私有知识库检索、ReAct 推理循环能力。
 
----
-
-## 目录
-
-- [项目演进](#项目演进)
-  - [v0.1 · 打地基](#v01--打地基)
-  - [v0.2 · 架构升级](#v02--架构升级)
-  - [v0.3 · 规划中](#v03--规划中)
-- [项目结构](#项目结构)
-- [快速启动](#快速启动)
-- [核心设计](#核心设计)
-- [API 接口](#api-接口)
-- [测试](#测试)
-- [技术栈](#技术栈)
+![version](https://img.shields.io/badge/version-v0.2-blue) ![tests](https://img.shields.io/badge/tests-157-green) ![python](https://img.shields.io/badge/python-3.11-blue) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
 ---
 
 ## 项目演进
 
-> 这个项目不是一开始就设计成现在的样子。
-> 它从最简单的"if-else 路由"开始，在一次又一次遇到问题后，
-> 学习新的架构模式，重构，测试，再发现问题，再重构。
-> 下面是这个迭代过程。
+这个项目从最简单的 if-else 路由开始，在实践中遇到问题，学习新的架构模式后重构升级。下面是整个过程。
 
----
+### v0.1 — 打地基
 
-### v0.1 · 打地基
-
-`FastAPI` `SQLite` `LangGraph` `Ollama`
-
-**目标：** 让一个跑在本地的 LLM 能存记忆、能查知识库、能聊天。
-
-<p align="center">
-  <img src="https://mermaid.ink/img/pako:eNp1kMEKwjAMQP-l5KzivoOdBNHDQPDgQfBQa9DgtRtpKyjSf7eqIOLMJYT3SF46sJ4UshyXik-OBUFLRtMblKbgtHg4sOR9u8k03lAzlwsoJTu3pFNJj8nB5RTF0hAvDQKicJ2ah3aK8_6gj3JRjLp0jwPJa20mCj0_9ksH0rwI4s_JD6D84BnErO_BrSOhYd3q1jK2LPkBn4PYXg" alt="v0.1 architecture">
-</p>
-
-最初的思路很直觉 —— 用户消息来了，先猜他想干什么，再路由到对应模块：
+最初的架构很直觉：用户发消息，先猜他想干什么，再分发给对应模块。
 
 ```
-用户输入  →  detect_intent（规则匹配 + LLM 兜底）
-                ├─ "记住xxx"    →  写 SQLite
-                ├─ "搜索xxx"    →  查 ChromaDB
-                └─ 其他         →  LLM 聊天
+用户输入 → detect_intent（规则 + LLM 兜底）→ chat / remember / search → 生成回答
 ```
 
-**这版能用，但跑了一段时间后，5 个架构问题逐渐暴露：**
+**技术栈：** FastAPI + LangGraph + SQLite + ChromaDB + Ollama + Qwen2.5:7b
 
-<table>
-<tr>
-  <td width="30"><strong>1</strong></td>
-  <td><strong>意图检测不可靠</strong></td>
-</tr>
-<tr><td></td><td>
-LLM 被要求输出一个字符串标签（<code>"chat"</code> / <code>"remember"</code> / <code>"search"</code>），再用 if-else 路由。Qwen2.5:7b 经常返回 <code>"chat "</code>（多余空格）或 <code>"我要聊天"</code>（整句中文），case 匹配直接失效。
-</td></tr>
+这版跑通后，几个问题逐渐暴露：
 
-<tr>
-  <td width="30"><strong>2</strong></td>
-  <td><strong>两条聊天管线各自实现</strong></td>
-</tr>
-<tr><td></td><td>
-<code>/chat</code>（JSON）和 <code>/chat/stream</code>（SSE）是两套独立代码，各自构建输入、各自调 agent、各自处理错误。修一个 bug 要改两处，两边 SSE 格式还不统一。
-</td></tr>
+1. **意图检测不可靠。** LLM 被要求输出一个意图标签（`"chat"` / `"remember"`），再用 if-else 路由。但模型经常返回带空格的 `"chat "` 或整句中文 `"我要聊天"`，case 匹配直接失效。
 
-<tr>
-  <td width="30"><strong>3</strong></td>
-  <td><strong>不支持删除记忆</strong></td>
-</tr>
-<tr><td></td><td>
-用户只能存不能删。AgentState 字段在三个文件中各自定义一套，互相对不上。
-</td></tr>
+2. **两条聊天管线各自实现。** `/chat` 和 `/chat/stream` 是两套独立代码，修 bug 要改两处，而且两边 SSE 格式不统一。
 
-<tr>
-  <td width="30"><strong>4</strong></td>
-  <td><strong>模型名硬编码</strong></td>
-</tr>
-<tr><td></td><td>
-<code>agent/graph.py</code> 里 <code>"qwen2.5:7b"</code> 写死在代码里。换模型要改源码，不是改配置。
-</td></tr>
+3. **不支持删除记忆。** 用户只能存不能删。AgentState 字段在三个文件里各自定义，互相对不上。
 
-<tr>
-  <td width="30"><strong>5</strong></td>
-  <td><strong>错误无降级</strong></td>
-</tr>
-<tr><td></td><td>
-Ollama 挂了 → agent 直接崩溃 → HTTP 500。前端不知道发生了什么。
-</td></tr>
-</table>
+4. **模型名硬编码。** 换模型要改源码。
 
-> **关键认知：** 这些问题在 Demo 里都不是问题。但当系统需要处理"先查 Redis 文档，然后记住它的核心配置"这种多意图请求、需要被前端消费、需要稳定运行时，就成了真正的架构债。
+5. **Ollama 挂了就直接 500。** 没有降级处理。
 
----
+这些问题在 Demo 里不算什么，但系统要处理多意图（"先查 Redis 文档，再记住它的配置"）、要被前端消费时，就成了架构债。
 
-### v0.2 · 架构升级
+### v0.2 — 架构升级
 
-`ReAct 循环` `@tool 工具调用` `统一管线` `SSE 协议`
+**核心思路：不要让代码猜 LLM 想干什么，让 LLM 直接告诉代码要调用哪个函数。**
 
-**核心洞察：**
+研究了 LangGraph 文档后，找到两个关键能力：
 
-<p align="center">
-  <strong>不要让代码猜 LLM 想干什么。<br>让 LLM 直接告诉代码要调用哪个函数。</strong>
-</p>
+- **`@tool` + `bind_tools()`** — 把 Python 函数包装成 LLM 可调用的工具。LLM 不再输出模糊的字符串，而是输出结构化的 `tool_calls`：`{"name": "search_knowledge", "args": {"query": "Redis 配置"}}`。代码只负责执行。
 
-在研究 LangGraph 文档后，找到了两个关键能力：
-
-<blockquote>
-<p><strong><code>@tool</code> + <code>bind_tools()</code></strong></p>
-<p>把 Python 函数包装成 LLM 可调用的工具。LLM 不再输出模糊的字符串，而是输出结构化的 <code>tool_calls</code>：</p>
-<pre><code>{"name": "search_knowledge", "args": {"query": "Redis 配置"}}</code></pre>
-<p>代码只负责执行，不用解析。</p>
-</blockquote>
-
-<blockquote>
-<p><strong><code>create_react_agent</code></strong></p>
-<p>LangGraph 预构建的 ReAct（Reasoning + Acting）循环。LLM 在循环中自主决策：</p>
-<pre><code>需要调工具吗？→ 调哪个？→ 结果够吗？→ 还需要更多信息吗？→ 重复直到完成</code></pre>
-</blockquote>
-
-**新架构：**
+- **`create_react_agent`** — LangGraph 预构建的 ReAct 循环。LLM 在循环中自主决策：需要调工具吗？调哪个？结果够吗？还需要更多吗？循环直到完成。
 
 ```
 用户输入
-  │
-  ▼
-ChatService.stream_events()        ◀── 唯一业务入口，/chat 和 /chat/stream 共用
-  │
-  ▼
-┌─────────────────────────────┐
-│     create_react_agent       │
-│                              │
-│   agent 节点 ──有 tool_calls──▶ tools 节点
-│       ▲                          │
-│       └────── 工具结果 ──────────┘
-│                              │
-│   无 tool_calls → 输出最终回答  │
-└─────────────────────────────┘
-  │
-  ▼
-SSE 事件流 → 前端消费
+  →
+ChatService.stream_events()          ← /chat 和 /chat/stream 共用
+  →
+create_react_agent
+  ├─ agent 节点：LLM 决策
+  └─ tools 节点：执行 tool_calls
+       ↑                  │
+       └── 结果返回，循环 ──┘
+  →
+SSE 事件流 → 前端
 ```
 
-**v0.1 vs v0.2：每个问题是怎么解决的**
+**v0.1 vs v0.2 对比：**
 
 | 问题 | v0.1 | v0.2 |
-|------|:-----|:-----|
-| 意图检测 | LLM 输出字符串 → if-else 路由 | `@tool` + `bind_tools()` → 结构化 `tool_calls` |
-| 双管线 | 两套独立代码路径 | `ChatService.stream_events()` 统一入口 |
-| 增删改查 | 只能存、查 | `save` / `list` / `delete` / `delete_all` 完整 CRUD |
-| 模型切换 | 源码硬编码 | `settings.ollama_chat_model` 从 `.env` 读 |
-| State 管理 | 三个文件各自定义 | 统一 `GraphState(TypedDict)` |
+|------|------|------|
+| 意图检测 | LLM 输出字符串，if-else 路由 | `@tool` + `bind_tools()`，结构化 `tool_calls` |
+| 双管线 | 两套独立代码 | `ChatService.stream_events()` 统一入口 |
+| CRUD | 只能存和查 | `save` `list` `delete` `delete_all` 完整 CRUD |
+| 模型切换 | 源码硬编码 | `.env` 配置 `settings.ollama_chat_model` |
+| State | 三个文件各自定义 | 统一 `GraphState`，`AgentState` 别名兼容 |
 | 错误处理 | 崩溃 → 500 | try/except → `error` SSE 事件 |
-| 编码兼容 | Windows 乱码 | UTF-8 with BOM |
-| ChromaDB 兼容 | 1.5.9+ API 不匹配 | `NotFoundError` + 自定义 Embedding |
+| 编码 | Windows 乱码 | UTF-8 with BOM |
+| ChromaDB | 1.5.9+ API 不兼容 | NotFoundError + 自定义 Ollama Embedding |
 
-**工程化成果：**
-- **157 个测试**（136 单元 · 6 集成 · 7 E2E · 3 性能 · 5 安全）
-- **SSE 事件协议**文档化：`meta` → `stage` → `final` → `done`
-- **LangGraph astream_events v2** 事件映射到自定义 SSE 格式
+**工程化成果：** 157 个测试（136 单元 + 6 集成 + 7 E2E + 3 性能 + 5 安全），SSE 事件协议文档化，完整工具测试覆盖。
 
----
+### v0.3 — 规划中
 
-### v0.3 · 规划中
-
-`Reflexion 循环` `多 Agent 审核` `被动记忆提取`
-
-当前 ReAct 的局限：Agent 生成回答后不会自我审查。引用不存在的文档、代码有 bug、格式不对 —— Agent 都发现不了。
-
-**方案：** 引入 Reflexion 模式 —— Agent 生成 → 审核员指出不足 → Agent 修正 → 循环直到通过或达到上限。同时规划被动记忆提取：不等用户说"记住"，而是定期分析对话历史自动发现潜在偏好。
+当前 ReAct 的局限：Agent 不会自我审查。引用错误、格式不对都发现不了。计划引入 Reflexion 模式——Agent 生成回答 → 审核员指正 → Agent 修正 → 循环直到通过。
 
 ---
 
@@ -186,17 +83,16 @@ SSE 事件流 → 前端消费
 
 ```
 private-agent/
-├── app/                 FastAPI 入口 · ChatService 统一管线
-├── agent/               LangGraph ReAct 循环 · @tool 工具定义
-├── tools/               知识库检索工具
-├── llm/                 Ollama HTTP 客户端
-├── memory/              SQLite 存储（WAL 模式）
-├── rag/                 ChromaDB 向量库 · 文档切块 · 本地导入
-├── config/              Pydantic Settings
-├── knowledge/           本地 Markdown 笔记
-├── tests/               157 个测试
-├── static/              前端 SPA + SSE 客户端
-└── pictures/            架构图
+├── app/          FastAPI 入口 · ChatService 统一管线
+├── agent/        LangGraph ReAct 循环 · @tool 工具定义
+├── tools/        知识库检索工具
+├── llm/          Ollama HTTP 客户端
+├── memory/       SQLite 存储
+├── rag/          ChromaDB 向量库 · 文档切块 · 本地导入
+├── config/       Pydantic Settings
+├── knowledge/    本地 Markdown 笔记
+├── tests/        157 个测试
+└── static/       前端 + SSE 客户端
 ```
 
 ---
@@ -204,24 +100,21 @@ private-agent/
 ## 快速启动
 
 ```bash
-# 1. 拉取模型
 ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
 
-# 2. 安装依赖
 python -m venv venv
 source venv/Scripts/activate
 pip install -r requirements.txt
 
-# 3. 导入知识库
 curl -X POST http://127.0.0.1:8000/ingest/local \
   -H "Content-Type: application/json" \
   -d '{"directory": "knowledge"}'
 
-# 4. 启动
 uvicorn app.main:app --reload
-# 浏览器打开 http://127.0.0.1:8000
 ```
+
+浏览器打开 `http://127.0.0.1:8000`
 
 ---
 
@@ -229,84 +122,56 @@ uvicorn app.main:app --reload
 
 ### ReAct 推理循环
 
-```
-create_react_agent(model=ChatOllama, tools=TOOLS, state_schema=AgentState)
-                              │
-                              ▼
-              ┌───────────────────────────┐
-              │       agent 节点           │
-              │  LLM 分析输入 + 对话历史    │
-              │  决定：直接回答 or 调工具   │
-              └──────────┬────────────────┘
-                         │
-              有 tool_calls │ 无 tool_calls
-                         │      │
-              ┌──────────▼──┐   │
-              │  tools 节点  │   │
-              │  执行工具调用 │   │
-              │  结果回传     │   │
-              └──────┬───────┘   │
-                     │           │
-                     └─────循环──┘
-                                │
-                                ▼
-                          最终回答
-```
+`create_react_agent(model=ChatOllama, tools=TOOLS, state_schema=AgentState)`
 
-### 5 个 LLM 可调用工具
+- **agent 节点** — LLM 分析输入，决定直接回答还是调用工具
+- **tools 节点** — 执行 tool_calls，结果传回 agent
+- 循环直到 LLM 不再输出 tool_calls，或达到步数上限
 
-| 工具 | 参数 | 底层 |
+### 5 个工具
+
+| 工具 | 参数 | 实现 |
 |------|------|------|
-| `search_knowledge` | `query: str` | ChromaDB Top-5 语义检索 |
+| `search_knowledge` | `query` | ChromaDB 向量检索 Top-5 |
 | `save_memory` | `key, value, category` | SQLite INSERT OR REPLACE |
 | `list_memories` | `category?` | SQLite SELECT + 分类筛选 |
 | `delete_memory` | `key` | SQLite DELETE |
-| `delete_all_memories` | — | 遍历删除（需确认） |
+| `delete_all_memories` | — | 遍历删除，需用户确认 |
 
-### 统一 SSE 事件流
+### 统一聊天管线
 
-`ChatService.stream_events()` 是 `/chat` 和 `/chat/stream` 的唯一入口，产出标准事件流：
+`ChatService.stream_events()` 是唯一业务入口，产出标准 SSE 事件流：
 
 ```
-meta  {"request_id":"...", "thread_id":"..."}
-stage {"stage":"正在检索知识库...", "message":"查找相关文档"}
-final {"content":"根据你的知识库...", "citations":[]}
-done  {"request_id":"..."}
+meta  → {"request_id":"...", "thread_id":"..."}
+stage → {"stage":"正在检索...", "message":"查找相关文档"}
+final → {"content":"回答内容", "citations":[]}
+done  → {"request_id":"..."}
 ```
 
-- `/chat` → 遍历流，收集 `final` → 返回 JSON
-- `/chat/stream` → 逐条包装为 `data: {json}\n\n` → SSE 推送
+- `/chat` 遍历流，收集 `final` 后返回 JSON
+- `/chat/stream` 逐条包装为 `data: ...\n\n` 推送
 
 ### 文档切块
 
-```
-Markdown 文件
-  → 按 ## 标题分割
-    → 超长段落按空行分割
-      → 超长段落按 300 字窗口（50 字重叠）切割
-```
+Markdown 文件 → 按 `##` 标题分割 → 超长段落按空行分割 → 超长段落按 300 字窗口（50 字重叠）切割。
 
 ---
 
-## API 接口
+## API
 
-### 聊天
-| `POST` | `/chat` | 同步，返回 JSON |
-| `POST` | `/chat/stream` | 流式，SSE 事件流 |
-
-### 记忆
-| `POST` | `/memory/remember` | `{key, value, category}` |
-| `GET` | `/memory/list` | `?category=tech_stack` |
-| `DELETE` | `/memory/delete/{key}` | — |
-| `DELETE` | `/memory/delete-all` | — |
-
-### 知识库
-| `POST` | `/knowledge/search` | `{query, top_k}` |
-| `POST` | `/ingest/local` | `{directory}` |
-
-### 系统
-| `GET` | `/health` | Ollama 状态 + 模型列表 |
-| `GET` | `/` | 前端对话界面 |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/chat` | 聊天（JSON） |
+| `POST` | `/chat/stream` | 聊天（SSE 流） |
+| `POST` | `/memory/remember` | 保存记忆 |
+| `GET` | `/memory/list` | 查看记忆 |
+| `DELETE` | `/memory/delete/{key}` | 删除记忆 |
+| `DELETE` | `/memory/delete-all` | 删除全部 |
+| `POST` | `/knowledge/search` | 搜索知识库 |
+| `POST` | `/ingest/local` | 导入本地笔记 |
+| `GET` | `/health` | 健康检查 |
+| `GET` | `/` | 前端界面 |
 
 ---
 
@@ -317,29 +182,31 @@ pytest tests/ -v
 ```
 
 | 类型 | 数量 | 覆盖 |
-|:-----|:----:|:-----|
-| 单元测试 | 136 | 工具 · 存储 · API · 切块 · 格式化 · Ollama |
-| 集成测试 | 6 | Agent 全流程 · 多工具协作 |
+|------|:----:|------|
+| 单元 | 136 | 工具 · 存储 · API · 切块 · 格式化 · Ollama |
+| 集成 | 6 | Agent 全流程 · 多工具协作 |
 | E2E | 7 | 对话流程 · 记忆 CRUD · 知识库搜索 |
 | 性能 | 3 | 响应时间 · 并发 |
-| 安全 | 5 | 空消息 · 超长输入 · 特殊字符 · 无效 ID |
+| 安全 | 5 | 边界输入 · 注入 · 无效会话 |
 
 ---
 
 ## 技术栈
 
-| 层 | 选型 | 为什么 |
-|:---|:-----|:-------|
-| 框架 | FastAPI | 原生异步 · 自动 OpenAPI |
-| Agent | LangChain + LangGraph | ReAct 预构建 · `bind_tools` |
-| LLM | Ollama · Qwen2.5:7b | 本地运行 · 零成本 |
-| Embedding | Ollama · nomic-embed-text | 768 维本地向量化 |
-| 向量库 | ChromaDB | 持久化 · 余弦检索 |
-| 业务库 | SQLite (WAL) | 零配置 · 适合单机 |
-| 测试 | pytest + asyncio | 异步支持 · fixture 复用 |
+| 层 | 选型 |
+|:---|:-----|
+| 框架 | FastAPI |
+| Agent | LangChain + LangGraph |
+| LLM | Ollama · Qwen2.5:7b |
+| Embedding | Ollama · nomic-embed-text |
+| 向量库 | ChromaDB |
+| 业务库 | SQLite (WAL) |
+| 测试 | pytest + asyncio |
 
 ---
 
-<p align="center">
-  <sub>MIT License · <a href="https://github.com/zzj024/private-agent">GitHub</a></sub>
-</p>
+## 相关文档
+
+- [ARCHITECTURE-v0.2.md](ARCHITECTURE-v0.2.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [TECH_DEBT.md](TECH_DEBT.md)
