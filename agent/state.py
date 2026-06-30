@@ -42,6 +42,7 @@ class GraphState(TypedDict, total=False):
     attempt: int
     errors: list[dict]
     remaining_steps: int
+    is_last_step: bool      # LangGraph managed: True when remaining_steps <= 1
     
     # === Phase 1 compatible fields (removed in Phase 2) ===
     message: str

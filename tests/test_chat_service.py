@@ -73,7 +73,8 @@ class TestChatServiceEvents:
 class TestChatServiceStream:
 
     @pytest.mark.asyncio
-    async def test_stream_emits_meta_first(self):
+    @patch('agent.graph.run_agent_with_reflexion', return_value=None)
+    async def test_stream_emits_meta_first(self, _mock_reflexion):
         from app.chat_service import ChatService
         cs = ChatService()
         cs.graph = MagicMock()
@@ -83,7 +84,8 @@ class TestChatServiceStream:
         assert events[0]['event'] == 'meta'
 
     @pytest.mark.asyncio
-    async def test_stream_passes_graph_events_through(self):
+    @patch('agent.graph.run_agent_with_reflexion', return_value=None)
+    async def test_stream_passes_graph_events_through(self, _mock_reflexion):
         from app.chat_service import ChatService
         mock_events = [
             {'event': 'on_chain_start', 'name': 'agent', 'data': {'input': {}}},
@@ -94,10 +96,11 @@ class TestChatServiceStream:
         cs.graph.astream_events.return_value = _AsyncIter(mock_events)
         events = [json.loads(e) async for e in cs.stream_events('hello')]
         types = [e['event'] for e in events]
-        assert types == ['meta', 'stage', 'final', 'done']
+        assert types == ['meta', 'stage', 'stage', 'final', 'done']  # reflexion stage + ReAct stage
 
     @pytest.mark.asyncio
-    async def test_stream_conversation_id_matches(self):
+    @patch('agent.graph.run_agent_with_reflexion', return_value=None)
+    async def test_stream_conversation_id_matches(self, _mock_reflexion):
         from app.chat_service import ChatService
         cs = ChatService()
         cs.graph = MagicMock()
@@ -106,11 +109,26 @@ class TestChatServiceStream:
         assert events[0]['event'] == 'meta'
         assert events[0]['data']['thread_id'] == '42'
 
+    @pytest.mark.asyncio
+    @patch('agent.graph.run_agent_with_reflexion', return_value='Reflexion answer')
+    async def test_stream_reflexion_success_path(self, _mock_reflexion):
+        """When reflexion succeeds, returns final directly, skipping astream_events"""
+        from app.chat_service import ChatService
+        cs = ChatService()
+        cs.graph = MagicMock()
+        events = [json.loads(e) async for e in cs.stream_events('hello')]
+        types = [e['event'] for e in events]
+        assert types == ['meta', 'stage', 'final', 'done']
+        final = [e for e in events if e['event'] == 'final'][0]
+        assert final['data']['content'] == 'Reflexion answer'
+        cs.graph.astream_events.assert_not_called()
+
 
 class TestChatServiceErrors:
 
     @pytest.mark.asyncio
-    async def test_graph_error_emits_error_event(self):
+    @patch('agent.graph.run_agent_with_reflexion', return_value=None)
+    async def test_graph_error_emits_error_event(self, _mock_reflexion):
         from app.chat_service import ChatService
         cs = ChatService()
         cs.graph = MagicMock()
@@ -122,7 +140,8 @@ class TestChatServiceErrors:
         assert 'Ollama' in errors[0]['data']['message']
 
     @pytest.mark.asyncio
-    async def test_empty_message_handled(self):
+    @patch('agent.graph.run_agent_with_reflexion', return_value=None)
+    async def test_empty_message_handled(self, _mock_reflexion):
         from app.chat_service import ChatService
         cs = ChatService()
         cs.graph = MagicMock()

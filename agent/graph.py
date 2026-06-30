@@ -7,7 +7,6 @@ from langchain_core.messages import HumanMessage
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
 
-from agent.state import AgentState
 from agent.tools import TOOLS
 from config.settings import settings
 
@@ -42,7 +41,8 @@ def build_agent():
     agent = create_react_agent(
         model=llm,
         tools=TOOLS,
-        state_schema=AgentState,
+        # Not passing state_schema — let create_react_agent use its default
+        # MessagesState with IsLastStep and RemainingSteps managed values
     )
 
     return agent
