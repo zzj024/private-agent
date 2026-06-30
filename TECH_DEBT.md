@@ -185,26 +185,133 @@ SSE 事件格式没有文档化。
 
 ---
 
-### P3：Reflexion 循环（带缓存）
+### P3：Reflexion 循环（带缓存 + 结构化反馈 + 智能终止）
 **问题描述：**
 Agent 不会从失败中学习，同样的问题第二次还是同样错误。
 
 **设计方案：**
-```
-1. 循环外维护临时缓存列表
-2. Agent 生成答案（使用缓存）
-3. 审核员检查（评估质量）
-4. 记录回答和分数
-5. 判断是否通过
-   - 通过 → 返回通过的回答
-   - 不通过 → 继续循环
-6. 超过最大次数 → 返回得分最高的回答
+
+#### 核心优化
+
+1. **临时缓存列表（带归一化）**
+   - 循环外维护缓存字典
+   - Agent 查数据时先查缓存
+   - 缓存没有再查数据库
+   - **缓存 key 标准化归一化**：`"Redis 配置"` 和 `"redis 配置"` 命中同一缓存
+   - **缓存作用域**：单次请求内有效，跨请求不共享
+
+2. **结构化反馈**
+   - issues 和 suggestions 结构化，而不是纯字符串
+   - 每条 issue 对应一条 suggestion
+   - Agent 在下一轮可以逐条针对性修正
+   - 避免面对一段模糊的批评不知所措
+
+3. **智能终止**
+   - 连续两次分数没有提升 → 提前终止
+   - 避免"改了三遍反而越来越差"的情况
+   - 节省 token 和时间
+
+4. **最低分数线**
+   - score < 4 返回 None
+   - 前端显示"抱歉，我暂时无法回答这个问题"
+   - 比返回一个低质量回答更好
+
+#### 数据结构设计
+
+```python
+@dataclass
+class ReviewResult:
+    """审核结果"""
+    score: int              # 1-10
+    passed: bool            # score >= 7 算通过
+    issues: List[str]       # ["格式不符合 Markdown 规范", "第3条引用不存在"]
+    suggestions: List[str]  # ["使用无序列表", "验证 K3 来源是否存在"]
+
+@dataclass
+class ReflexionAttempt:
+    """一次 Reflexion 循环的尝试"""
+    attempt: int  # 第几次尝试
+    answer: str  # Agent 的回答
+    review: ReviewResult  # 审核结果（结构化）
+    cached_data: dict  # 缓存的数据
+
+class ReflexionState:
+    """Reflexion 循环状态"""
+    def __init__(self):
+        self.attempts: List[ReflexionAttempt] = []  # 所有尝试
+        self.cache: dict = {}  # 临时缓存（单次请求内有效）
+        self.question: str = ""  # 原始问题
+    
+    def _normalize_key(self, query: str) -> str:
+        """缓存 key 标准化归一化"""
+        return query.strip().lower()
+    
+    def cache_data(self, key: str, value: any):
+        """缓存数据（带归一化）"""
+        normalized_key = self._normalize_key(key)
+        self.cache[normalized_key] = value
+    
+    def get_cached_data(self, key: str) -> Optional[any]:
+        """获取缓存的数据（带归一化）"""
+        normalized_key = self._normalize_key(key)
+        return self.cache.get(normalized_key)
+    
+    def get_best_attempt(self, min_score: int = 4) -> Optional[ReflexionAttempt]:
+        """获取得分最高的尝试（带最低分数线）"""
+        valid = [a for a in self.attempts if a.review.score >= min_score]
+        return max(valid, key=lambda x: x.review.score) if valid else None
+    
+    def get_passed_attempt(self) -> Optional[ReflexionAttempt]:
+        """获取通过的尝试"""
+        for attempt in self.attempts:
+            if attempt.review.passed:
+                return attempt
+        return None
+    
+    def should_terminate_early(self) -> bool:
+        """判断是否应该提前终止（连续两次分数没有提升）"""
+        if len(self.attempts) < 2:
+            return False
+        return self.attempts[-1].review.score <= self.attempts[-2].review.score
 ```
 
-**核心优化：**
-- **临时缓存列表**：减少重复数据库查询
-- **记录所有回答和分数**：可观测性，便于调试
-- **智能返回策略**：保证返回质量最高的回答
+#### 循环流程
+
+```
+用户输入
+    ↓
+┌─────────────────────────────────────┐
+│ 初始化 ReflexionState               │
+│   - attempts: []  # 所有尝试        │
+│   - cache: {}  # 临时缓存           │
+│   - question: ""  # 原始问题        │
+└─────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────┐
+│ 循环开始（最大 3 次）                │
+│   ↓                                 │
+│   Agent 生成答案（使用缓存）          │
+│   ↓                                 │
+│   审核员检查（结构化反馈）            │
+│   ↓                                 │
+│   记录回答和审核结果                  │
+│   ↓                                 │
+│   判断是否通过                       │
+│   ├─ 通过 → 返回通过的回答           │
+│   └─ 不通过 → 检查提前终止条件       │
+│       ├─ 连续两次分数没提升 → 终止   │
+│       └─ 继续循环                    │
+└─────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────┐
+│ 循环结束                             │
+│   ↓                                 │
+│   获取得分最高的回答（最低分数线 4）  │
+│   ├─ 有 → 返回得分最高的回答         │
+│   └─ 无 → 返回 None                  │
+│       └─ 前端显示"暂时无法回答"       │
+└─────────────────────────────────────┘
+```
 
 **适用场景：** 代码生成、JSON 输出、知识库引用检查
 **不适用：** 主观创意类、本地小模型自我反思
@@ -238,7 +345,7 @@ Agent 不会从失败中学习。
 |------|--------|
 | v0.2（已完成） | P0：AgentState 统一、双管线统一、工具调用替代 intent、Ollama 降级、删除记忆、被动记忆提取、问答可靠性 |
 | v0.2（已完成） | P1：模型名配置化、JSON 解析、会话管理、流式协议标准化 |
-| v0.3（开发中） | P3：Reflexion 循环（带缓存） |
+| v0.3（开发中） | P3：Reflexion 循环（带缓存 + 结构化反馈 + 智能终止） |
 | v0.3（计划中） | P2：对话管理、Agent 检索、安全 |
 | v0.4（计划中） | P3：多 Agent 审核循环 |
 
@@ -284,96 +391,55 @@ Qwen + bind_tools()
 
 ## v0.3 架构变更（开发中）
 
-### 核心变化：Reflexion 循环（带缓存）
+### 核心变化：Reflexion 循环（带缓存 + 结构化反馈 + 智能终止）
 
-**新架构设计：**
+**Claude 评审意见：**
 
-```
-用户输入
-    ↓
-┌─────────────────────────────────────┐
-│ 初始化 ReflexionState               │
-│   - attempts: []  # 所有尝试        │
-│   - cache: {}  # 临时缓存           │
-│   - question: ""  # 原始问题        │
-└─────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────┐
-│ 循环开始（最大 3 次）                │
-│   ↓                                 │
-│   Agent 生成答案（使用缓存）          │
-│   ↓                                 │
-│   审核员检查（评估质量）              │
-│   ↓                                 │
-│   记录回答和分数                     │
-│   ↓                                 │
-│   判断是否通过                       │
-│   ├─ 通过 → 返回通过的回答           │
-│   └─ 不通过 → 继续循环               │
-└─────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────┐
-│ 超过最大次数                         │
-│   ↓                                 │
-│   返回得分最高的回答                  │
-└─────────────────────────────────────┘
-```
+> 你的设计思路很扎实，三个优化点都切中了当前 ReAct 循环的实际痛点。
 
-**核心优化：**
+**评审维度：**
 
-1. **临时缓存列表**
-   - 循环外维护缓存字典
-   - Agent 查数据时先查缓存
-   - 缓存没有再查数据库
-   - 减少重复查询，提高性能
+| 维度 | 评分 | 说明 |
+|------|------|------|
+| 问题定位 | ★★★★★ | 准确抓住了 ReAct 的三个弱点 |
+| 数据结构 | ★★★★☆ | ReflexionAttempt 设计清晰，ReviewResult 建议结构化 |
+| 边界处理 | ★★★☆☆ | 需要补全失败、连续退化、低分兜底等边界 |
+| 可实现性 | ★★★★★ | 完全可以基于当前 agent/tools.py + agent/state.py 扩展 |
 
-2. **记录所有回答和分数**
-   - 每次循环记录：回答内容、审核分数、审核反馈
-   - 可观测性：知道每次循环的情况
-   - 调试方便：可以分析为什么失败
+**吸收的优化建议：**
 
-3. **智能返回策略**
-   - 有通过的回答 → 返回通过的回答
-   - 没有通过的回答 → 返回得分最高的回答
-   - 保证返回质量最高的回答
+1. **缓存 key 标准化归一化**
+   - `"Redis 配置"` 和 `"redis 配置"` 应该命中同一个缓存
+   - 使用 `query.strip().lower()` 归一化
 
-**数据结构：**
+2. **缓存作用域明确**
+   - 缓存在单次请求内有效，跨请求不共享
+   - 避免以后有人误解为全局缓存
 
-```python
-@dataclass
-class ReflexionAttempt:
-    """一次 Reflexion 循环的尝试"""
-    attempt: int  # 第几次尝试
-    answer: str  # Agent 的回答
-    score: int  # 审核分数 (1-10)
-    passed: bool  # 是否通过
-    issues: List[str]  # 发现的问题
-    suggestions: List[str]  # 改进建议
-    cached_data: dict  # 缓存的数据
+3. **结构化反馈**
+   - issues 和 suggestions 结构化，而不是纯字符串
+   - 每条 issue 对应一条 suggestion
+   - Agent 在下一轮可以逐条针对性修正
 
-class ReflexionState:
-    """Reflexion 循环状态"""
-    def __init__(self):
-        self.attempts: List[ReflexionAttempt] = []  # 所有尝试
-        self.cache: dict = {}  # 临时缓存
-        self.question: str = ""  # 原始问题
-    
-    def get_best_attempt(self) -> Optional[ReflexionAttempt]:
-        """获取得分最高的尝试"""
-        if not self.attempts:
-            return None
-        return max(self.attempts, key=lambda x: x.score)
-    
-    def get_passed_attempt(self) -> Optional[ReflexionAttempt]:
-        """获取通过的尝试"""
-        for attempt in self.attempts:
-            if attempt.passed:
-                return attempt
-        return None
-```
+4. **最低分数线**
+   - score < 4 返回 None
+   - 前端显示"抱歉，我暂时无法回答这个问题"
+   - 比返回一个低质量回答更好
+
+5. **智能终止**
+   - 连续两次分数没有提升 → 提前终止
+   - 避免"改了三遍反而越来越差"的情况
+
+**与当前代码的衔接点：**
+
+- ReflexionState 可以直接扩展当前的 GraphState（在 agent/state.py 里加字段）
+- 带缓存的 search_knowledge_with_cache 包装现有的 tools/knowledge_tools.py
+- reflexion_loop 替代当前的 create_react_agent，或者作为它的外层包装
+
+**结论：** 这个设计可以在不破坏现有 v0.2 架构的前提下实现，说明 v0.2 的模块划分是合理的。
 
 ---
 
 **决策日期：** 2026-06-30
-**决策人：** Tech Lead + 用户共同审核
-**诱因：** 用户提出优化方案，提高性能和质量保证
+**决策人：** Tech Lead + 用户 + Claude 共同审核
+**诱因：** 用户提出优化方案，Claude 提供专业评审意见
