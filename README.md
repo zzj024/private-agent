@@ -69,9 +69,9 @@ SSE 事件流 → 前端消费
 | Windows 编码 | 乱码 | UTF-8 with BOM |
 | ChromaDB | 版本 API 不兼容 | NotFoundError + 自定义 Ollama Embedding |
 
-**工程化成果：** 157 个测试（136 单元 + 6 集成 + 7 E2E + 3 性能 + 5 安全），SSE 事件协议文档化。
+**工程化成果：** 208 个测试（含 v0.3 新增 100 个），SSE 事件协议文档化。
 
-### v0.3 — Reflexion 循环（开发中）
+### v0.3 — Reflexion 循环（已实现）
 
 当前 ReAct 的局限：Agent 不会自我审查。引用不存在的文档、格式不对都发现不了。
 
@@ -121,6 +121,124 @@ else:
 | 终止条件 | 固定步数 | 通过 / 连续无提升 / 最大轮次 |
 | 可观测性 | 低 | 高（每次尝试完整记录） |
 
+**设计迭代：缓存下沉到工具层**
+
+初版实现后审查，发现一个架构层面的错误。
+
+**核心问题：缓存位置错误**
+
+缓存的是 LLM 最终回答，不是底层原始数据。key 命中直接返回旧答案，LLM 不重新生成，审核员不重新审查，循环形同虚设。
+
+```python
+# 错误 —— 缓存 LLM 答案
+state.cache_answer(question, answer)       # key: question:redis 配置
+state.get_cached_answer(question)          # 命中 → 直接返回 → 循环无效
+```
+
+**正确设计：数据层缓存，生成层不缓存**
+
+```python
+# 正确 —— 缓存工具层原始数据
+state.cache_tool_result("kb", query, result)       # key: kb:redis 配置
+state.get_cached_tool_result("kb", query)          # 命中 → 复用数据 → LLM 重新生成
+```
+
+```
+Reflexion 第 1 轮:
+  LLM → search_knowledge("Redis") → 缓存没有 → 查 ChromaDB → 存缓存 {kb:redis: [chunk1..5]}
+  LLM 基于数据生成回答 → 审核员: "格式不对，改成表格"
+
+Reflexion 第 2 轮:
+  LLM 重新生成回答（绝不复用旧答案）
+  LLM → search_knowledge("Redis") → 缓存命中 → 直接返回数据，不查库
+  LLM 拿到同一份数据，按审核建议用表格组织 → 审核员: "通过"
+```
+
+**缓存内容对比：**
+
+| 维度 | 错误设计 | 正确设计 |
+|------|---------|---------|
+| 缓存内容 | LLM 最终回答 | 工具层原始数据 |
+| 缓存 key | `question:{question}` | `{tool_name}:{query}` |
+| 缓存命中 | 直接返回旧答案 | 使用缓存数据，LLM 重新生成 |
+| 循环效果 | 无效 | 有效 |
+
+**接口精简：3 个方法 → 1 个**
+
+`get_best_attempt(min_score)` + `get_passed_attempt` 功能重叠。后者完全被前者覆盖 —— 调用方拿到最高分后自己看一眼 `passed` 字段即可。`min_score` 参数让方法职责不清，过滤逻辑是调用方的决策。
+
+```python
+# 只保留一个，不带过滤
+def get_best_attempt(self) -> Optional[ReflexionAttempt]:
+    if not self.attempts:
+        return None
+    return max(self.attempts, key=lambda x: x.review.score)
+
+# 调用方自己判断
+best = state.get_best_attempt()
+if best and best.review.passed:
+    return best.answer         # 通过
+elif best and best.score >= 4:
+    return best.answer         # 没通过但还凑合
+else:
+    return None                # 太差了，不如不说
+```
+
+**数据结构调整：**
+
+```python
+class ReflexionState:
+    def __init__(self):
+        self.attempts = []          # 所有尝试记录
+        self.data_cache = {}        # 工具层数据缓存（非 LLM 答案）
+        self.question = ""
+
+    def cache_tool_result(self, tool_name: str, query: str, result: str):
+        key = f"{tool_name}:{self._normalize_key(query)}"
+        self.data_cache[key] = result
+
+    def get_cached_tool_result(self, tool_name: str, query: str) -> Optional[str]:
+        key = f"{tool_name}:{self._normalize_key(query)}"
+        return self.data_cache.get(key)
+```
+
+**generate_answer 简化：**
+
+```python
+# 错误 —— 查回答缓存，命中直接返回
+def generate_answer(question, state):
+    cached = state.get_cached_answer(question)   # 缓存 LLM 答案
+    if cached: return cached                     # 直接返回，循环无效
+    answer = run_agent(question)
+    state.cache_answer(question, answer)         # 缓存 LLM 答案
+    return answer
+
+# 正确 —— 不缓存答案，每轮都重新调用 Agent
+def generate_answer(question, state):
+    return run_agent(question, state=state)
+    # Agent 内部的工具调用自动使用 state.data_cache 复用数据
+```
+
+**Agent 内部工具层缓存：**
+
+```python
+def search_knowledge_with_cache(query: str, state: ReflexionState) -> str:
+    # 1. 先查缓存
+    cached = state.get_cached_tool_result("kb", query)
+    if cached:
+        return cached                 # 缓存命中，不查 ChromaDB
+
+    # 2. 缓存没有，查数据库
+    from tools.knowledge_tools import search_knowledge
+    result = search_knowledge(query)
+
+    # 3. 存入缓存
+    state.cache_tool_result("kb", query, result)
+    return result
+```
+
+这个迭代体现了：写出来 → 审查 → 发现缓存位置错误 → 下沉到工具层 → 精简接口。工程中常见的"先做对，再做好"。
+
 ---
 
 ## 项目结构
@@ -128,14 +246,14 @@ else:
 ```
 private-agent/
 ├── app/          FastAPI 入口 · ChatService 统一管线
-├── agent/        LangGraph ReAct 循环 + Reflexion 循环 · @tool 工具定义
+├── agent/        ReAct 循环 · Reflexion 循环 · @tool 工具定义
 ├── tools/        知识库检索工具
-├── llm/          Ollama HTTP 客户端
+├── llm/          Ollama · DeepSeek 客户端
 ├── memory/       SQLite 存储（WAL 模式）
 ├── rag/          ChromaDB 向量库 · 文档切块 · 本地导入
 ├── config/       Pydantic Settings
 ├── knowledge/    本地 Markdown 笔记
-├── tests/        157 个测试
+├── tests/        208 个测试
 └── static/       前端 SPA + SSE 客户端
 ```
 
@@ -221,11 +339,9 @@ pytest tests/ -v
 
 | 类型 | 数量 | 覆盖 |
 |------|:----:|------|
-| 单元测试 | 136 | 工具、存储 CRUD、API 端点、文档切块、文本格式化、Ollama 客户端 |
-| 集成测试 | 6 | Agent 管线全流程、多工具协作 |
-| E2E 测试 | 7 | 完整对话流程、记忆增删改查、知识库搜索 |
-| 性能测试 | 3 | 响应时间、并发请求 |
-| 安全测试 | 5 | 空消息、超长输入、特殊字符、无效会话 ID、缺失字段 |
+| v0.1-v0.2 测试 | 108 | 工具、存储 CRUD、API、切块、格式化、Ollama、Agent 管线、E2E |
+| v0.3 新增 | 100 | ReflexionState、审核模块、DeepSeek 客户端、工具缓存、集成、安全 |
+| **总计** | **208** | |
 
 ---
 

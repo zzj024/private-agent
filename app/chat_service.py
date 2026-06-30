@@ -40,34 +40,56 @@ class ChatService:
             "thread_id": thread_id,
         })
 
-        # 3. 构建 LangGraph 输入
-        config = {
-            "configurable": {"thread_id": thread_id},
-        }
-        input_data = {
-            "messages": [HumanMessage(content=message)],
-            "original_question": message,
-            "thread_id": thread_id,
-            "request_id": request_id,
-        }
+        # 3. 尝试 v0.3 Reflexion 循环
+        yield self._make_event("stage", {
+            "stage": "正在思考...",
+            "message": "分析你的问题，决定调用哪些工具",
+        })
 
-        # 4. 启动 graph.astream_events
-        #    使用 version="v2" 获取新版事件格式
         try:
-            async for event in self.graph.astream_events(
-                input_data,
-                config=config,
-                version="v2",
-            ):
-                converted = self._convert_langgraph_event(event)
-                if converted:
-                    yield converted
+            from agent.graph import run_agent_with_reflexion
+            import asyncio
+            result = await asyncio.to_thread(run_agent_with_reflexion, message, conversation_id)
         except Exception as e:
-            yield self._make_event("error", {
-                "code": "AGENT_ERROR",
-                "message": str(e),
-                "retryable": True,
+            result = None
+            yield self._make_event("stage", {
+                "stage": f"Reflexion 不可用: {str(e)[:50]}",
+                "message": "降级为 ReAct 模式",
             })
+
+        if result:
+            # Reflexion 成功（或降级 ReAct 成功）
+            yield self._make_event("final", {
+                "content": result,
+                "citations": [],
+            })
+        else:
+            # Reflexion 完全失败，走原有 ReAct streaming 管线
+            config = {
+                "configurable": {"thread_id": thread_id},
+            }
+            input_data = {
+                "messages": [HumanMessage(content=message)],
+                "original_question": message,
+                "thread_id": thread_id,
+                "request_id": request_id,
+            }
+
+            try:
+                async for event in self.graph.astream_events(
+                    input_data,
+                    config=config,
+                    version="v2",
+                ):
+                    converted = self._convert_langgraph_event(event)
+                    if converted:
+                        yield converted
+            except Exception as e:
+                yield self._make_event("error", {
+                    "code": "AGENT_ERROR",
+                    "message": str(e),
+                    "retryable": True,
+                })
 
         # 5. 推送 done 事件
         yield self._make_event("done", {

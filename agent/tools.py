@@ -6,23 +6,59 @@ from langchain_core.tools import tool
 
 @tool
 def search_knowledge(query: str) -> str:
-    """Search private knowledge base. Use when you need to query user notes, documents, or project information."""
+    """搜索私有知识库（带缓存）"""
+    # 1. 获取当前 state
+    from agent.reflexion import get_current_state
+    state = get_current_state()
+    
+    if state:
+        # 2. 检查缓存
+        cached = state.get_cached_tool_result("kb", query)
+        if cached:
+            return cached  # 缓存命中
+    
+    # 3. 缓存没有，查数据库
     from tools.knowledge_tools import search_knowledge as kb_search
-    return kb_search(query)
+    result = kb_search(query)
+    
+    # 4. 存入缓存
+    if state:
+        state.cache_tool_result("kb", query, result)
+    
+    return result
 
 
 @tool
 def save_memory(key: str, value: str, category: str = "preference") -> str:
-    """Save a long-term memory. key is category (name/tech_stack/weak_point/goal/preference), value is specific content."""
+    """保存一条长期记忆"""
     from memory.sqlite_store import get_store
     store = get_store()
     store.save_memory(key, value, category)
+    
+    # 清除相关缓存
+    from agent.reflexion import get_current_state
+    state = get_current_state()
+    if state:
+        state.clear_cache("memory:")
+    
     return f"Saved: {key} = {value}"
 
 
 @tool
 def list_memories(category: str = "") -> str:
-    """List user long-term memories. Can specify category to filter."""
+    """列出用户的长期记忆（带缓存）"""
+    # 1. 获取当前 state
+    from agent.reflexion import get_current_state
+    state = get_current_state()
+    
+    cache_key = f"memory:list:{category}"
+    if state:
+        # 2. 检查缓存
+        cached = state.get_cached_tool_result("memory", cache_key)
+        if cached:
+            return cached  # 缓存命中
+    
+    # 3. 缓存没有，查数据库
     from memory.sqlite_store import get_store
     store = get_store()
     cat = category or None
@@ -35,15 +71,28 @@ def list_memories(category: str = "") -> str:
         v = m["value"]
         c = m["category"]
         parts.append(f"- {k}: {v} ({c})")
-    return "\n".join(parts)
+    result = "\n".join(parts)
+    
+    # 4. 存入缓存
+    if state:
+        state.cache_tool_result("memory", cache_key, result)
+    
+    return result
 
 
 @tool
 def delete_memory(key: str) -> str:
-    """Delete a long-term memory by key."""
+    """删除指定 key 的长期记忆"""
     from memory.sqlite_store import get_store
     store = get_store()
     success = store.delete_memory(key)
+    
+    # 清除相关缓存
+    from agent.reflexion import get_current_state
+    state = get_current_state()
+    if state:
+        state.clear_cache("memory:")
+    
     if success:
         return f"Deleted memory: {key}"
     return f"Memory not found: {key}"
@@ -51,7 +100,7 @@ def delete_memory(key: str) -> str:
 
 @tool
 def delete_all_memories() -> str:
-    """Delete all long-term memories. This operation is irreversible, requires user confirmation."""
+    """删除全部长期记忆"""
     from memory.sqlite_store import get_store
     store = get_store()
     memories = store.list_memories()
@@ -59,8 +108,15 @@ def delete_all_memories() -> str:
         return "No memories to delete"
     for m in memories:
         store.delete_memory(m["key"])
+    
+    # 清除相关缓存
+    from agent.reflexion import get_current_state
+    state = get_current_state()
+    if state:
+        state.clear_cache("memory:")
+    
     return f"Deleted all {len(memories)} memories"
 
 
-# Tool registration list
+# 工具注册列表
 TOOLS = [search_knowledge, save_memory, list_memories, delete_memory, delete_all_memories]

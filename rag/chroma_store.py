@@ -3,7 +3,7 @@
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
-from chromadb.errors import NotFoundError
+from chromadb.errors import NotFoundError, InvalidCollectionException
 from pathlib import Path
 
 
@@ -34,7 +34,7 @@ class ChromaStore:
             # Replace with our own
             col._embedding_function = self._embedding_function
             return col
-        except NotFoundError:
+        except (NotFoundError, InvalidCollectionException):
             return self.client.create_collection(
                 name=name,
                 embedding_function=self._embedding_function,
@@ -89,14 +89,14 @@ class ChromaStore:
         try:
             collection = self.get_collection(collection_name)
             return collection.count()
-        except NotFoundError:
+        except (NotFoundError, InvalidCollectionException):
             return 0
 
     def delete_collection(self, collection_name: str = "personal_knowledge"):
         """Delete entire collection"""
         try:
             self.client.delete_collection(collection_name)
-        except (ValueError, NotFoundError):
+        except (ValueError, NotFoundError, InvalidCollectionException):
             pass
 
 
