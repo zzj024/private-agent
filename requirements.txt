@@ -2,7 +2,10 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 
-# LangGraph
+# LangChain + LangGraph
+langchain==0.3.23
+langchain-core==0.3.51
+langchain-ollama==0.3.0
 langgraph==0.2.64
 
 # LLM
