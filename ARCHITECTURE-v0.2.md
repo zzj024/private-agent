@@ -441,4 +441,5 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 **决策日期：** 2026-06-30
 **决策人：** Tech Lead + 用户 + Claude 共同审核
-**状态：** v0.2 完成，v0.3 Reflexion 循环已实现（258 测试全部通过）
+**状态：** v0.2 完成，v0.3 Reflexion 已实现，智能检索优化进行中（258 测试全部通过）
+**下阶段：** 智能检索（docs/SMART_SEARCH_DESIGN.md）→ 对话管理 → 被动记忆提取

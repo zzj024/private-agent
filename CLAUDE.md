@@ -8,8 +8,9 @@ Private Agent 是一个私人知识库管理员 + 长期记忆系统 + AI 文档
 
 ## 当前状态
 
-**版本：** v0.3（已实现）
+**版本：** v0.3（已实现，智能检索优化进行中）
 **状态：** 258 个测试全部通过
+**下一任务：** 智能检索优化（方案 A+），详见 docs/SMART_SEARCH_DESIGN.md
 
 ## 核心架构
 
@@ -110,3 +111,4 @@ pytest tests/test_reflexion_state.py -v
 - [ARCHITECTURE-v0.2.md](ARCHITECTURE-v0.2.md) — 系统架构
 - [TECH_DEBT.md](TECH_DEBT.md) — 技术债务
 - [AGENTS.md](AGENTS.md) — 项目指南
+- [docs/SMART_SEARCH_DESIGN.md](docs/SMART_SEARCH_DESIGN.md) — 智能检索实施方案

@@ -69,7 +69,13 @@ SSE 事件流 → 前端消费
 | Windows 编码 | 乱码 | UTF-8 with BOM |
 | ChromaDB | 版本 API 不兼容 | NotFoundError + 自定义 Ollama Embedding |
 
-**工程化成果：** 258 个测试（含 v0.3 新增 100 个），SSE 事件协议文档化。
+**工程化成果：** 258 个测试（含 v0.3 新增 100 个），SSE 事件协议文档化。废弃代码已清理（-119 行）。
+
+### v0.3 进行中 — 智能检索优化
+
+**问题：** 知识库检索硬编码 `N_RESULTS=5`，简单问题和复杂问题一视同仁。
+
+**方案（方案 A+）：** ChromaDB 探针 Top-20 → 规则根据距离分布剪枝 → Qwen 一次重排序 → LLM 动态决定返回条数。不改 `search_knowledge` 签名，不引入独立 agent。详见 [SMART_SEARCH_DESIGN.md](docs/SMART_SEARCH_DESIGN.md)。
 
 ### v0.3 — Reflexion 循环（已实现）
 

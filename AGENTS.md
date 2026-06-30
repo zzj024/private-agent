@@ -55,7 +55,10 @@ private-agent/
 - 工具层数据缓存（contextvars 传递 state）
 - DeepSeek 审核员检查
 - 接口精简（3 个方法 -> 1 个）
-- 100 个新测试（ReflexionState、审核模块、DeepSeek 客户端、工具缓存、集成、安全）
+- 258 个测试全部通过
+
+### v0.3 进行中
+- 智能检索优化（方案 A+：ChromaDB 探针 → 规则剪枝 → LLM 重排序）
 
 ## 核心功能
 
