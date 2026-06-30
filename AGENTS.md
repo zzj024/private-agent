@@ -1,4 +1,4 @@
-# private-agent
+﻿# private-agent
 
 私人知识库管理员 + 长期记忆系统 + AI 文档更新监控助手。
 
@@ -37,7 +37,7 @@ private-agent/
 ├── config/       配置
 ├── knowledge/    本地笔记来源
 ├── data/         数据存储
-├── tests/        208 个测试
+├── tests/        258 个测试
 ├── static/       前端文件
 └── pictures/     架构图
 ```
@@ -93,7 +93,7 @@ pytest tests/ -v
 - v0.1-v0.2 测试: 108 个（工具、存储、API、切块、格式化、Ollama、Agent 管线、E2E）
 - v0.3 新增: 100 个（ReflexionState、审核模块、DeepSeek 客户端、工具缓存、集成、安全）
 
-**总计：208 个测试**
+**总计：258 个测试**
 
 ## 相关文档
 

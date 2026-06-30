@@ -339,7 +339,7 @@ data: {"event": "done", "data": {"request_id": "abc"}}
 | 集成测试 | 11 | test_reflexion_integration.py |
 | 安全测试 | 17 | test_reflexion_security.py |
 
-**运行中：208 个（另有 E2E/性能/旧集成/旧安全需 langchain_ollama 环境）**
+**运行中：258 个（另有 E2E/性能/旧集成/旧安全需 langchain_ollama 环境）**
 
 ---
 
@@ -441,4 +441,4 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 **决策日期：** 2026-06-30
 **决策人：** Tech Lead + 用户 + Claude 共同审核
-**状态：** v0.2 完成，v0.3 Reflexion 循环已实现（208 测试全部通过）
+**状态：** v0.2 完成，v0.3 Reflexion 循环已实现（258 测试全部通过）

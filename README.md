@@ -69,7 +69,7 @@ SSE 事件流 → 前端消费
 | Windows 编码 | 乱码 | UTF-8 with BOM |
 | ChromaDB | 版本 API 不兼容 | NotFoundError + 自定义 Ollama Embedding |
 
-**工程化成果：** 208 个测试（含 v0.3 新增 100 个），SSE 事件协议文档化。
+**工程化成果：** 258 个测试（含 v0.3 新增 100 个），SSE 事件协议文档化。
 
 ### v0.3 — Reflexion 循环（已实现）
 
@@ -253,7 +253,7 @@ private-agent/
 ├── rag/          ChromaDB 向量库 · 文档切块 · 本地导入
 ├── config/       Pydantic Settings
 ├── knowledge/    本地 Markdown 笔记
-├── tests/        208 个测试
+├── tests/        258 个测试
 └── static/       前端 SPA + SSE 客户端
 ```
 
