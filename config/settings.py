@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     # 存储路径
     sqlite_path: Path = project_root / "data" / "agent.db"
     chroma_path: Path = project_root / "data" / "chroma"
-    raw_docs_path: Path = project_root / "data" / "raw_docs"
 
     # 服务
     host: str = "127.0.0.1"

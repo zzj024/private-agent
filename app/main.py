@@ -33,11 +33,6 @@ class SearchRequest(BaseModel):
 class IngestLocalRequest(BaseModel):
     directory: str = "knowledge"
 
-class IngestWebRequest(BaseModel):
-    url: str
-    topic: str = ""
-
-
 # ═══════════════════════════════════════════════
 # 创建应用
 # ═══════════════════════════════════════════════
@@ -178,30 +173,3 @@ def ingest_local(req: IngestLocalRequest):
     return result
 
 
-@app.post("/ingest/web")
-def ingest_web(req: IngestWebRequest):
-    """导入网页文档（占位，Phase 2 实现）"""
-    return {
-        "status": "ok",
-        "message": f"已记录导入请求：{req.url}（完整实现在 Phase 2）",
-    }
-
-
-@app.post("/updates/check")
-def check_updates():
-    """检查文档更新（占位，Phase 2 实现）"""
-    return {"status": "ok", "message": "文档更新检查将在 Phase 2 实现"}
-
-
-@app.get("/updates/recent")
-def recent_updates(days: int = 7):
-    """查看最近文档更新（占位，Phase 2 实现）"""
-    return {"updates": [], "message": "文档更新将在 Phase 2 实现"}
-
-
-@app.post("/review/weekly")
-def weekly_review():
-    """生成本周复盘（占位，Phase 2 实现）"""
-    return {
-        "review": "周复盘功能将在 Phase 2 实现",
-    }
