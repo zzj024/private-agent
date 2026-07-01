@@ -69,13 +69,22 @@ SSE 事件流 → 前端消费
 | Windows 编码 | 乱码 | UTF-8 with BOM |
 | ChromaDB | 版本 API 不兼容 | NotFoundError + 自定义 Ollama Embedding |
 
-**工程化成果：** 311 个测试（含 v0.3 新增 100 个 + 智能检索 A++ 新增 53 个），SSE 事件协议文档化。废弃代码已清理。
+**工程化成果：** 318 个测试（含 v0.3 新增 100 个 + 智能检索 A++ 60 个），SSE 事件协议文档化。
 
-### v0.3 进行中 — 智能检索优化
+### v0.3 已完成 — 智能检索 A++ + 对话管理
 
-**问题：** 知识库检索硬编码 `N_RESULTS=5`，简单问题和复杂问题一视同仁。
+**智能检索 A++：** 知识库检索硬编码 `N_RESULTS=5`，简单问题和复杂问题一视同仁。
 
-**方案（方案 A++）：** LLM 查询分类 → 自适应 ChromaDB 探头 → gap 规则预筛 → LLM relevance 打分 + 动态选择 → 字符预算格式化。不改 `search_knowledge` 签名，不引入独立 agent。详见 [SMART_SEARCH_DESIGN.md](docs/SMART_SEARCH_DESIGN.md)。
+**方案（方案 A++）：** 规则查询分类 → 自适应 ChromaDB 探头 → gap 规则预筛 → LLM relevance 打分 + 动态选择 → 字符预算格式化。不改 `search_knowledge` 签名，不引入独立 agent。详见 [SMART_SEARCH_DESIGN.md](docs/SMART_SEARCH_DESIGN.md)。
+
+### v0.3 — 对话管理（已实现）
+
+- 侧边栏会话列表 + 一键新建
+- 切换会话自动加载历史消息
+- 双击会话名重命名
+- 删除会话（CASCADE 自动清理消息）
+- 消息自动保存到 SQLite
+- 前端打字机效果 + 开关切换
 
 ### v0.3 — Reflexion 循环（已实现）
 
@@ -259,7 +268,7 @@ private-agent/
 ├── rag/          ChromaDB 向量库 · 文档切块 · 本地导入
 ├── config/       Pydantic Settings
 ├── knowledge/    本地 Markdown 笔记
-├── tests/        311 个测试
+├── tests/        318 个测试
 └── static/       前端 SPA + SSE 客户端
 ```
 
@@ -347,12 +356,12 @@ pytest tests/ -v
 |------|:----:|------|
 | v0.1-v0.2 测试 | 108 | 工具、存储 CRUD、API、切块、格式化、Ollama、Agent 管线、E2E |
 | v0.3 新增 | 100 | ReflexionState、审核模块、DeepSeek 客户端、工具缓存、集成、安全 |
-| v0.3 A++ 新增 | 53 | 智能检索：profile、预筛、重排序、格式化、降级 |
-| **总计** | **261** | |
+| v0.3 A++ 新增 | 60 | 智能检索：profile、预筛、重排序、格式化、降级、集成 |
+| **总计** | **268** | |
 
 ---
 
-注：运行中 311 个（含 E2E/性能/旧集成 50 个）
+注：运行中 318 个（含 E2E/性能/旧集成 50 个）
 
 ---
 
