@@ -164,11 +164,11 @@ SSE 事件格式没有文档化。
 知识库检索结果不够精准。
 
 **修复方案：**
-- 优化 embedding 模型
-- 改进检索算法
-- 添加重排序机制
+- 智能检索 A++（LLM 查询分类 → 自适应探头 → gap 预筛 → relevance 重排序 → 字符预算格式化）
+- 53 单元测试 + 7 集成测试
+- 距离阈值已校准（nomic-embed-text 768维 L2）
 
-**状态：** 计划中（v0.3）
+**状态：** 已完成（v0.3 A++）
 
 ---
 
@@ -369,7 +369,7 @@ Agent 不会从失败中学习。
 | v0.2（已完成） | P0：AgentState 统一、双管线统一、工具调用替代 intent、Ollama 降级、删除记忆、问答可靠性 |
 | v0.2（已完成） | P1：模型名配置化、JSON 解析、流式协议标准化 |
 | v0.3（已完成） | Reflexion 循环、工具层缓存、DeepSeek 审核、chromadb 兼容、废弃代码清理 |
-| v0.3（进行中） | P2：智能检索优化（方案 A+：规则剪枝 + LLM 重排序） |
+| v0.3（已完成） | P2：智能检索 A++（LLM 查询分类 + 自适应探头 + gap 预筛 + relevance 重排序 + 字符预算） |
 | v0.3（计划中） | P2：对话管理、被动记忆提取、会话管理 |
 | v0.4（计划中） | P3：多 Agent 审核循环、独立 search agent |
 
@@ -413,9 +413,9 @@ Qwen + bind_tools()
 
 ---
 
-## v0.3 架构变更（开发中）
+## v0.3 架构变更（已完成）
 
-### 核心变化：Reflexion 循环（带缓存 + 结构化反馈 + 智能终止）
+### 核心变化：Reflexion 循环（带缓存 + 结构化反馈 + 智能终止）+ 智能检索 A++
 
 **Claude 评审意见：**
 
@@ -467,3 +467,35 @@ Qwen + bind_tools()
 **决策日期：** 2026-06-30
 **决策人：** Tech Lead + 用户 + Claude 共同审核
 **诱因：** 用户提出优化方案，Claude 提供专业评审意见
+
+---
+
+## v0.3 A++ 智能检索（已实施）
+
+**实施方案：** [docs/SMART_SEARCH_DESIGN.md](docs/SMART_SEARCH_DESIGN.md)
+
+**核心管线：**
+```
+LLM 查询分类 (narrow/normal/broad)
+  → 自适应 ChromaDB 探头 (10/20/30)
+  → distance gap 规则预筛
+  → LLM relevance 打分 (0-3, 只保留 >=2)
+  → 字符预算格式化 (1800/3000/5000 chars)
+```
+
+**关键设计决策：**
+- 查询复杂度用 LLM 分类（非规则），为后续多 agent 框架做准备
+- 不设固定返回条数上限，改为字符预算约束
+- 允许返回空结果
+- 查空保护：LLM 判断空时保留 top 2 兜底
+- 距离阈值已校准：nomic-embed-text 768 维 L2 量纲 ~1.0-1.15
+
+**文件变更：**
+| 文件 | 变更 |
+|------|------|
+| `tools/knowledge_tools.py` | 重写，新增 8 个函数 + QueryProfile |
+| `agent/tools.py` | 缓存前缀 `kb` → `kb_v2` |
+| `tests/test_knowledge_tools.py` | 新建，60 测试（53 单元 + 7 集成） |
+| `pytest.ini` | 新建，注册 integration marker |
+
+**实施日期：** 2026-07-01

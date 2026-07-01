@@ -13,7 +13,7 @@ def search_knowledge(query: str) -> str:
     
     if state:
         # 2. 检查缓存
-        cached = state.get_cached_tool_result("kb", query)
+        cached = state.get_cached_tool_result("kb_v2", query)
         if cached:
             return cached  # 缓存命中
     
@@ -23,7 +23,7 @@ def search_knowledge(query: str) -> str:
     
     # 4. 存入缓存
     if state:
-        state.cache_tool_result("kb", query, result)
+        state.cache_tool_result("kb_v2", query, result)
     
     return result
 

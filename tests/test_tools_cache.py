@@ -29,7 +29,7 @@ class TestSearchKnowledgeCache:
     def test_cache_hit_returns_cached(self):
         """When data is cached, skip ChromaDB call"""
         state = ReflexionState()
-        state.cache_tool_result("kb", "test query", "[K1] Cached result")
+        state.cache_tool_result("kb_v2", "test query", "[K1] Cached result")
         set_current_state(state)
 
         from agent.tools import search_knowledge
@@ -53,7 +53,7 @@ class TestSearchKnowledgeCache:
 
         assert result == "[K1] Fresh"
         # Should also be cached for next time
-        assert state.get_cached_tool_result("kb", "new query") == "[K1] Fresh"
+        assert state.get_cached_tool_result("kb_v2", "new query") == "[K1] Fresh"
 
     def test_no_state_calls_kb_directly(self):
         """Without ReflexionState (v0.2 mode), call KB directly"""
@@ -117,7 +117,7 @@ class TestCacheInvalidation:
     def test_save_memory_clears_memory_cache(self):
         state = ReflexionState()
         state.cache_tool_result("memory", "memory:list:", "cached memories")
-        state.cache_tool_result("kb", "some query", "cached kb")
+        state.cache_tool_result("kb_v2", "some query", "cached kb")
         set_current_state(state)
 
         from agent.tools import save_memory
@@ -129,12 +129,12 @@ class TestCacheInvalidation:
         # Memory cache cleared
         assert state.get_cached_tool_result("memory", "memory:list:") is None
         # KB cache untouched
-        assert state.get_cached_tool_result("kb", "some query") == "cached kb"
+        assert state.get_cached_tool_result("kb_v2", "some query") == "cached kb"
 
     def test_delete_memory_clears_memory_cache(self):
         state = ReflexionState()
         state.cache_tool_result("memory", "memory:list:", "cached")
-        state.cache_tool_result("kb", "query", "kb data")
+        state.cache_tool_result("kb_v2", "query", "kb data")
         set_current_state(state)
 
         from agent.tools import delete_memory
@@ -145,7 +145,7 @@ class TestCacheInvalidation:
             delete_memory.invoke({"key": "old_key"})
 
         assert state.get_cached_tool_result("memory", "memory:list:") is None
-        assert state.get_cached_tool_result("kb", "query") == "kb data"
+        assert state.get_cached_tool_result("kb_v2", "query") == "kb data"
 
     def test_delete_all_memories_clears_memory_cache(self):
         state = ReflexionState()
