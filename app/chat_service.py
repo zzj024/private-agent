@@ -20,7 +20,7 @@ class ChatService:
     async def stream_events(
         self,
         message: str,
-        conversation_id: str | None = None,
+        conversation_id: int | str | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         核心方法：统一的异步事件流。

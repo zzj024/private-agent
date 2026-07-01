@@ -99,13 +99,38 @@ class SqliteStore:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def get_recent_conversations(self, limit: int = 10) -> list[dict]:
+    def get_recent_conversations(self, limit: int = 20) -> list[dict]:
         """获取最近的会话列表"""
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM conversations ORDER BY updated_at DESC LIMIT ?",(limit,)
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def get_conversation(self, conversation_id: int) -> dict | None:
+        """获取单个会话信息"""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def rename_conversation(self, conversation_id: int, title: str) -> bool:
+        """重命名会话"""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE conversations SET title = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+                (title, conversation_id),
+            )
+            return cursor.rowcount > 0
+
+    def delete_conversation(self, conversation_id: int) -> bool:
+        """删除会话及其所有消息（CASCADE）"""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM conversations WHERE id = ?", (conversation_id,)
+            )
+            return cursor.rowcount > 0
 
      # 快捷函数：不需要创建实例也能用
 def get_store(db_path: Optional[str] = None) -> SqliteStore:

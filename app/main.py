@@ -19,7 +19,7 @@ chat_service = ChatService()
 
 class ChatRequest(BaseModel):
     message: str
-    conversation_id: str | None = None  # 改为 str 类型
+    conversation_id: int | str | None = None
 
 class RememberRequest(BaseModel):
     key: str
@@ -29,6 +29,16 @@ class RememberRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
+
+class CreateConversationRequest(BaseModel):
+    title: str = "新对话"
+
+class SaveMessageRequest(BaseModel):
+    role: str    # "user" | "assistant"
+    content: str
+
+class RenameConversationRequest(BaseModel):
+    title: str
 
 class IngestLocalRequest(BaseModel):
     directory: str = "knowledge"
@@ -161,6 +171,69 @@ def search_knowledge(req: SearchRequest):
         "context": context,
         "has_results": bool(context),
     }
+
+
+# ═══════════════════════════════════════════════
+# 会话管理
+# ═══════════════════════════════════════════════
+
+@app.get("/conversations")
+def list_conversations():
+    """获取最近会话列表"""
+    store = get_store()
+    conversations = store.get_recent_conversations(limit=50)
+    return {"conversations": conversations}
+
+
+@app.post("/conversations")
+def create_conversation(req: CreateConversationRequest):
+    """创建新会话"""
+    store = get_store()
+    conv_id = store.create_conversation(title=req.title)
+    conv = store.get_conversation(conv_id)
+    return {"conversation": conv}
+
+
+@app.get("/conversations/{conv_id}")
+def get_conversation(conv_id: int):
+    """获取会话详情及消息"""
+    store = get_store()
+    conv = store.get_conversation(conv_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    messages = store.get_conversation_messages(conv_id)
+    return {"conversation": conv, "messages": messages}
+
+
+@app.post("/conversations/{conv_id}/messages")
+def save_message(conv_id: int, req: SaveMessageRequest):
+    """向会话追加一条消息"""
+    store = get_store()
+    conv = store.get_conversation(conv_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    store.save_message(conv_id, req.role, req.content)
+    return {"status": "ok"}
+
+
+@app.put("/conversations/{conv_id}/rename")
+def rename_conversation(conv_id: int, req: RenameConversationRequest):
+    """重命名会话"""
+    store = get_store()
+    success = store.rename_conversation(conv_id, req.title)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "ok"}
+
+
+@app.delete("/conversations/{conv_id}")
+def delete_conversation(conv_id: int):
+    """删除会话及其所有消息"""
+    store = get_store()
+    success = store.delete_conversation(conv_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "ok"}
 
 
 @app.post("/ingest/local")

@@ -8,7 +8,6 @@ from typing import Literal
 from langchain_ollama import ChatOllama
 
 from rag.chroma_store import get_chroma_store
-from llm.ollama_client import get_ollama_client
 from config.settings import settings
 
 EXCERPT_MAX_CHARS = 450
@@ -41,59 +40,39 @@ DEFAULT_PROFILE = PROFILES["normal"]
 
 def assess_query_profile(query: str) -> QueryProfile:
     """
-    使用 LLM 判断查询类型，返回对应的 QueryProfile。
-    如果 LLM 判断失败，使用 normal 作为保底。
+    基于关键词 + 长度判断查询的证据需求，不调 LLM。
+
+    分类信号：
+    - broad:  含"所有/总结/对比/分析/架构/演进/优缺点"等综合信号词
+    - narrow: 含"是什么/在哪/多少/配置/路径"等单点信号词，且查询短
+    - normal: 其余情况
     """
-    try:
-        query_type = _classify_query_with_llm(query)
-        if query_type in PROFILES:
-            return PROFILES[query_type]
-        return DEFAULT_PROFILE
-    except Exception:
-        return DEFAULT_PROFILE
+    q = query.strip()
+    qlen = len(q)
 
+    broad_keywords = [
+        "所有", "总结", "对比", "分析", "梳理", "归纳", "关联",
+        "方案", "架构", "演进", "优缺点", "风险", "取舍", "全部",
+        "关系", "区别", "异同", "比较", "整理",
+    ]
 
-def _classify_query_with_llm(query: str) -> str:
-    """
-    使用本地 Qwen 模型对查询进行分类。
-    返回值: "narrow" / "normal" / "broad"
-    """
-    client = get_ollama_client()
+    narrow_keywords = [
+        "是多少", "是什么", "在哪", "哪个", "多少", "电话",
+        "邮箱", "路径", "配置", "key", "密码", "地址", "日期",
+        "版本", "端口", "账号",
+    ]
 
-    system_prompt = (
-        "你是一个查询分析器。根据用户查询的内容，判断需要检索多少知识片段。\n"
-        "\n"
-        "分类标准：\n"
-        "- narrow: 单点事实查询（如：是什么、是多少、在哪、配置值）\n"
-        "- normal: 普通解释查询（如：流程、说明、实现方式）\n"
-        "- broad: 综合分析查询（如：对比、总结、所有、优缺点）\n"
-        "\n"
-        '只返回 JSON，不要解释。格式: {"type": "narrow"}'
-    )
+    has_broad = any(kw in q for kw in broad_keywords)
+    has_narrow = any(kw in q for kw in narrow_keywords)
+    is_short = qlen <= 15
 
-    user_prompt = f"查询: {query}"
-
-    response = client.chat(
-        model=settings.ollama_chat_model,
-        messages=[{"role": "user", "content": user_prompt}],
-        system=system_prompt,
-        stream=False,
-    )
-
-    # 容错解析
-    try:
-        text = response.strip()
-        if text.startswith("```"):
-            text = text.removeprefix("```").removeprefix("json").removesuffix("```").strip()
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end > start:
-            data = json.loads(text[start:end + 1])
-            return data.get("type", "normal")
-    except (json.JSONDecodeError, KeyError):
-        pass
-
-    return "normal"
+    if has_broad:
+        return PROFILES["broad"]
+    if has_narrow and is_short:
+        return PROFILES["narrow"]
+    if is_short and not has_broad:
+        return PROFILES["narrow"]
+    return PROFILES["normal"]
 
 
 def rule_prefilter(results: list[dict], profile: QueryProfile) -> list[dict]:

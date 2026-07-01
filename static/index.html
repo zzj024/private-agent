@@ -16,7 +16,19 @@
   .nav a { padding: 12px 20px; text-decoration: none; color: #666; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; }
   .nav a:hover { color: #2c3e50; }
   .nav a.active { color: #2c3e50; border-bottom-color: #2c3e50; font-weight: 600; }
-  .main { max-width: 800px; margin: 0 auto; padding: 24px; }
+  .layout { display: flex; max-width: 1000px; margin: 0 auto; }
+  .sidebar { width: 220px; min-width: 220px; background: #fff; border-right: 1px solid #ddd; padding: 12px; display: none; flex-direction: column; gap: 4px; overflow-y: auto; max-height: calc(100vh - 100px); }
+  .sidebar.show { display: flex; }
+  .sidebar h4 { font-size: 12px; color: #999; margin: 4px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .conv-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative; }
+  .conv-item:hover { background: #f0f0f0; }
+  .conv-item.active { background: #e8f4fd; color: #2c3e50; font-weight: 600; }
+  .conv-item .del-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; background: #ddd; color: #666; font-size: 12px; display: none; cursor: pointer; }
+  .conv-item:hover .del-btn { display: block; }
+  .conv-item .del-btn:hover { background: #c0392b; color: #fff; }
+  .btn-new-conv { width: 100%; padding: 6px; border-radius: 6px; border: 1px dashed #ccc; background: #fff; color: #666; cursor: pointer; font-size: 13px; }
+  .btn-new-conv:hover { border-color: #2c3e50; color: #2c3e50; }
+  .main { flex: 1; padding: 24px; min-width: 0; }
   .panel { display: none; }
   .panel.active { display: block; }
   .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -58,13 +70,19 @@
 <body>
 <div class="header">
   <h1>Private Agent</h1>
-  <small>私人知识库管理员 v0.2</small>
+  <small>私人知识库管理员 v0.3</small>
 </div>
 <div class="nav">
   <a class="active" onclick="switchTab('chat',this)">💬 聊天</a>
   <a onclick="switchTab('kb',this)">📚 知识库</a>
   <a onclick="switchTab('import',this)">📥 导入</a>
   <a onclick="switchTab('memory',this)">🧠 记忆</a>
+</div>
+<div class="layout">
+<div class="sidebar show" id="conversationSidebar">
+  <h4>会话</h4>
+  <button class="btn-new-conv" onclick="newConversation()">+ 新建会话</button>
+  <div id="conversationList" style="margin-top:8px"></div>
 </div>
 <div class="main">
 <div class="panel active" id="panel-chat">
@@ -73,6 +91,7 @@
     <div class="chat-box" id="chatBox"></div>
     <div class="input-row">
       <input id="chatInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="btn-sm" id="typewriterToggle" onclick="toggleTypewriter()" style="font-size:11px;padding:2px 10px;white-space:nowrap">打字: 开</button>
       <button id="sendBtn" onclick="sendChat()">发送</button>
     </div>
     <div class="loading" id="chatLoading">思考中</div>
@@ -119,9 +138,12 @@
   </div>
 </div>
 </div>
+</div>
 
 <script>
 var markedOk = false, purifyOk = false;
+var currentConversationId = null;
+var typewriterOn = true;
 try { marked.setOptions({gfm:true,breaks:true}); markedOk = true; } catch(e){}
 try { DOMPurify.sanitize('t'); purifyOk = true; } catch(e){}
 
@@ -130,7 +152,90 @@ function switchTab(name, el) {
   document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active');});
   el.classList.add('active');
   document.getElementById('panel-'+name).classList.add('active');
+  var sidebar = document.getElementById('conversationSidebar');
+  if (name === 'chat') { sidebar.classList.add('show'); } else { sidebar.classList.remove('show'); }
   if (name === 'memory') loadMemories();
+}
+
+// ═══════════════════════════════════════════════
+// Conversation management
+// ═══════════════════════════════════════════════
+
+async function loadConversations() {
+  try {
+    var r = await fetch('/conversations');
+    var d = await r.json();
+    var list = d.conversations || [];
+    var el = document.getElementById('conversationList');
+    if (list.length === 0) {
+      el.innerHTML = '<div style="color:#999;font-size:12px;padding:8px">暂无会话</div>';
+      return;
+    }
+    el.innerHTML = list.map(function(c){
+      var active = c.id === currentConversationId ? ' active' : '';
+      var date = (c.updated_at || '').slice(0,10);
+      return '<div class="conv-item'+active+'" onclick="openConversation('+c.id+')" ondblclick="renameConversation('+c.id+',\''+c.title.replace(/'/g,"\\'")+'\')" title="双击重命名">'
+        + '<span class="conv-title">'+c.title+'</span>'
+        + ' <span style="color:#999;font-size:11px">'+date+'</span>'
+        + '<span class="del-btn" onclick="event.stopPropagation();deleteConversation('+c.id+')">x</span>'
+        + '</div>';
+    }).join('');
+  } catch(e) {
+    console.error('loadConversations failed:', e);
+  }
+}
+
+async function newConversation() {
+  try {
+    var r = await fetch('/conversations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:'新对话'})});
+    var d = await r.json();
+    currentConversationId = d.conversation.id;
+    document.getElementById('chatBox').innerHTML = '';
+    await loadConversations();
+  } catch(e) { console.error(e); }
+}
+
+async function openConversation(id) {
+  currentConversationId = id;
+  var box = document.getElementById('chatBox');
+  box.innerHTML = '';
+  try {
+    var r = await fetch('/conversations/'+id);
+    var d = await r.json();
+    (d.messages || []).forEach(function(m){
+      addMsg(m.role, m.content);
+    });
+  } catch(e) { console.error(e); }
+  await loadConversations();
+}
+
+async function renameConversation(id, oldTitle) {
+  var title = prompt('重命名会话:', oldTitle);
+  if (!title || title.trim() === '' || title.trim() === oldTitle) return;
+  try {
+    await fetch('/conversations/'+id+'/rename', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:title.trim()})});
+    await loadConversations();
+  } catch(e) { console.error(e); }
+}
+
+async function deleteConversation(id) {
+  try {
+    await fetch('/conversations/'+id, {method:'DELETE'});
+    if (currentConversationId === id) {
+      currentConversationId = null;
+      document.getElementById('chatBox').innerHTML = '';
+    }
+    await loadConversations();
+  } catch(e) { console.error(e); }
+}
+
+async function saveChatMessages(userMsg, assistantMsg) {
+  if (!currentConversationId) return;
+  try {
+    await fetch('/conversations/'+currentConversationId+'/messages', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role:'user',content:userMsg})});
+    await fetch('/conversations/'+currentConversationId+'/messages', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role:'assistant',content:assistantMsg})});
+    await loadConversations(); // refresh titles/dates
+  } catch(e) { console.error(e); }
 }
 
 function addMsg(role, text) {
@@ -157,14 +262,26 @@ async function sendChat() {
   document.getElementById('sendBtn').disabled = true;
   document.getElementById('chatLoading').classList.add('show');
 
+  // Auto-create conversation if none active
+  if (!currentConversationId) {
+    try {
+      var cr = await fetch('/conversations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:msg.slice(0,30)})});
+      var cd = await cr.json();
+      currentConversationId = cd.conversation.id;
+    } catch(e) {}
+  }
+
+  var convId = currentConversationId;
+
   // 先创建一个空的 assistant 气泡
   var box = document.getElementById('chatBox');
   var wrapper = document.createElement('div'); wrapper.className = 'msg assistant';
   var bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = '';
   wrapper.appendChild(bubble); box.appendChild(wrapper);
+  var finalContent = '';
 
   try {
-    var r = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})});
+    var r = await fetch('/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg, conversation_id:convId})});
     var reader = r.body.getReader();
     var decoder = new TextDecoder();
     var buffer = '';
@@ -187,12 +304,8 @@ async function sendChat() {
           if (evt === 'error') {
             bubble.textContent = '错误: ' + (evtData.message || '未知错误');
           } else if (evt === 'final') {
-            var content = evtData.content || '';
-            if (markedOk && purifyOk) {
-              bubble.innerHTML = DOMPurify.sanitize(marked.parse(content));
-            } else {
-              bubble.textContent = content;
-            }
+            finalContent = evtData.content || '';
+            typewriterRender(bubble, finalContent);
           } else if (evt === 'stage') {
             var loading = document.getElementById('chatLoading');
             loading.textContent = evtData.stage || '处理中';
@@ -207,8 +320,55 @@ async function sendChat() {
   } finally {
     document.getElementById('sendBtn').disabled = false;
     document.getElementById('chatLoading').classList.remove('show');
+    if (finalContent && convId) {
+      saveChatMessages(msg, finalContent);
+    }
   }
 }
+
+function toggleTypewriter() {
+  typewriterOn = !typewriterOn;
+  var btn = document.getElementById('typewriterToggle');
+  btn.textContent = '打字: ' + (typewriterOn ? '开' : '关');
+}
+
+function typewriterRender(bubble, text) {
+  if (!typewriterOn) {
+    // Instant render
+    if (markedOk && purifyOk) {
+      bubble.innerHTML = DOMPurify.sanitize(marked.parse(text));
+    } else {
+      bubble.textContent = text;
+    }
+    var box = document.getElementById('chatBox');
+    box.scrollTop = box.scrollHeight;
+    return;
+  }
+
+  var i = 0;
+  var speed = 15;
+  var raw = '';
+  bubble.textContent = '';
+
+  function tick() {
+    if (i < text.length) {
+      raw += text[i];
+      i++;
+      if (markedOk && purifyOk) {
+        bubble.innerHTML = DOMPurify.sanitize(marked.parse(raw));
+      } else {
+        bubble.textContent = raw;
+      }
+      var box = document.getElementById('chatBox');
+      box.scrollTop = box.scrollHeight;
+      setTimeout(tick, speed);
+    }
+  }
+  tick();
+}
+
+// Load conversations on page load
+loadConversations();
 
 async function ingestLocal() {
   var dir = document.getElementById('localDir').value.trim() || 'knowledge';

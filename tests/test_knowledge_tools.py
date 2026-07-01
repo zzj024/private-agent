@@ -256,32 +256,28 @@ class TestFormatKnowledgeResults:
 # ═══════════════════════════════════════════════
 
 class TestAssessQueryProfile:
-    def test_returns_narrow_for_narrow_query(self):
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="narrow"):
-            profile = assess_query_profile("What is my phone number")
-            assert profile.breadth == "narrow"
-            assert profile.probe_k == 10
+    def test_broad_keyword_triggers_broad(self):
+        profile = assess_query_profile("对比所有 AI 架构笔记的优缺点")
+        assert profile.breadth == "broad"
+        assert profile.probe_k == 30
 
-    def test_returns_broad_for_broad_query(self):
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="broad"):
-            profile = assess_query_profile("Compare all AI architecture notes")
-            assert profile.breadth == "broad"
-            assert profile.probe_k == 30
+    def test_narrow_short_query(self):
+        profile = assess_query_profile("我的手机号是多少")
+        assert profile.breadth == "narrow"
+        assert profile.probe_k == 10
 
-    def test_returns_normal_for_unknown_type(self):
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="unknown"):
-            profile = assess_query_profile("some query")
-            assert profile is DEFAULT_PROFILE
+    def test_short_query_defaults_narrow(self):
+        profile = assess_query_profile("hi")
+        assert profile.breadth == "narrow"
 
-    def test_returns_default_on_exception(self):
-        with patch('tools.knowledge_tools._classify_query_with_llm', side_effect=RuntimeError("boom")):
-            profile = assess_query_profile("some query")
-            assert profile is DEFAULT_PROFILE
+    def test_normal_query(self):
+        profile = assess_query_profile("How does Reflexion loop work in the project")
+        assert profile.breadth == "normal"
+        assert profile.probe_k == 20
 
-    def test_returns_normal_for_normal_query(self):
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="normal"):
-            profile = assess_query_profile("How does Reflexion work")
-            assert profile.breadth == "normal"
+    def test_long_query_without_keywords_is_normal(self):
+        profile = assess_query_profile("请详细解释一下 search_knowledge 的实现")
+        assert profile.breadth == "normal"
 
 
 # ═══════════════════════════════════════════════
@@ -484,11 +480,11 @@ class TestSmartSearchIntegration:
 
     def test_full_flow_rerank_enabled(self):
         """Complete pipeline with rerank enabled returns formatted context."""
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="normal"), \
+        with patch('tools.knowledge_tools.assess_query_profile', return_value=PROFILES["normal"]), \
              patch('tools.knowledge_tools.llm_rerank_and_select') as mock_rerank:
 
             # Mock rerank: return first 2 candidates as selected
-            from tools.knowledge_tools import rule_prefilter, PROFILES
+            from tools.knowledge_tools import rule_prefilter
             from rag.chroma_store import get_chroma_store
 
             store = get_chroma_store()
@@ -505,7 +501,7 @@ class TestSmartSearchIntegration:
 
     def test_full_flow_rerank_disabled_falls_back_to_prefilter(self):
         """With rerank returning all candidates, prefilter results are used."""
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="normal"), \
+        with patch('tools.knowledge_tools.assess_query_profile', return_value=PROFILES["normal"]), \
              patch('tools.knowledge_tools.llm_rerank_and_select', return_value=[]):
 
             # rerank returns empty, but top1 is strong → keep 2
@@ -526,7 +522,7 @@ class TestSmartSearchIntegration:
 
     def test_narrow_profile_returns_within_budget(self):
         """Narrow profile limits probe and budget."""
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="narrow"), \
+        with patch('tools.knowledge_tools.assess_query_profile', return_value=PROFILES["narrow"]), \
              patch('tools.knowledge_tools.llm_rerank_and_select') as mock_rerank:
 
             from rag.chroma_store import get_chroma_store
@@ -543,7 +539,7 @@ class TestSmartSearchIntegration:
 
     def test_broad_profile_allows_more(self):
         """Broad profile allows larger budget and more probes."""
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="broad"), \
+        with patch('tools.knowledge_tools.assess_query_profile', return_value=PROFILES["broad"]), \
              patch('tools.knowledge_tools.llm_rerank_and_select') as mock_rerank:
 
             from rag.chroma_store import get_chroma_store
@@ -560,7 +556,7 @@ class TestSmartSearchIntegration:
 
     def test_empty_chromadb_returns_empty(self):
         """When ChromaDB has no results, return empty string."""
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="normal"), \
+        with patch('tools.knowledge_tools.assess_query_profile', return_value=PROFILES["normal"]), \
              patch('tools.knowledge_tools.get_chroma_store') as mock_store_getter:
 
             mock_store = MagicMock()
@@ -574,7 +570,7 @@ class TestSmartSearchIntegration:
     def test_llm_exception_degradation(self):
         """LLM rerank exception falls back to prefilter results."""
         import traceback
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="normal"), \
+        with patch('tools.knowledge_tools.assess_query_profile', return_value=PROFILES["normal"]), \
              patch('tools.knowledge_tools.llm_rerank_and_select', side_effect=RuntimeError("LLM timeout")):
 
             from rag.chroma_store import get_chroma_store
@@ -589,7 +585,7 @@ class TestSmartSearchIntegration:
 
     def test_check_result_format(self):
         """Verify output format conventions."""
-        with patch('tools.knowledge_tools._classify_query_with_llm', return_value="normal"), \
+        with patch('tools.knowledge_tools.assess_query_profile', return_value=PROFILES["normal"]), \
              patch('tools.knowledge_tools.llm_rerank_and_select') as mock_rerank:
 
             from rag.chroma_store import get_chroma_store
