@@ -104,10 +104,12 @@ def get_current_state() -> Optional[ReflexionState]:
 # 核心函数
 # ═══════════════════════════════════════════════
 
-def generate_answer(question: str) -> str:
+def generate_answer(question: str, history: list = None,
+                   memory_context: str = "") -> str:
     """Agent 生成答案（不缓存答案，每轮都重新调用）"""
     from agent.graph import run_agent
-    return run_agent(question)
+    return run_agent(question, history=history,
+                     memory_context=memory_context)
 
 
 def _extract_json(text: str) -> Optional[dict]:
@@ -189,7 +191,8 @@ Agent 回答：{answer}
         )
 
 
-def reflexion_loop(question: str, max_retries: int = None) -> Optional[str]:
+def reflexion_loop(question: str, max_retries: int = None,
+                  history: list = None, memory_context: str = "") -> Optional[str]:
     """Reflexion 循环"""
     if max_retries is None:
         max_retries = settings.reflexion_max_retries
@@ -197,6 +200,8 @@ def reflexion_loop(question: str, max_retries: int = None) -> Optional[str]:
     # 1. 初始化状态
     state = ReflexionState()
     state.question = question
+    state.history = history or []
+    state.memory_context = memory_context
 
     # 2. 设置当前 state（供工具函数通过 get_current_state() 获取）
     set_current_state(state)
@@ -213,7 +218,8 @@ def reflexion_loop(question: str, max_retries: int = None) -> Optional[str]:
             else:
                 full_question = state.question
 
-            answer = generate_answer(full_question)
+            answer = generate_answer(full_question, history=state.history,
+                                     memory_context=state.memory_context)
 
             # 5. 审核员检查
             review = review_answer(state.question, answer)

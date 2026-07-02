@@ -69,3 +69,25 @@ CREATE TABLE IF NOT EXISTS document_updates (
     relevance   TEXT    DEFAULT 'medium',              -- 对你的相关度：high（高）| medium（中）| low（低）
     created_at  TEXT    DEFAULT (datetime('now', 'localtime'))  -- 发现更新的时间
 );
+
+-- ═══════════════════════════════════════════
+-- 被动记忆候选表：后台提取、用户审核
+-- Phase 1: 所有候选进 pending，不做自动写入
+-- ═══════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS memory_candidates (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,   -- 主键，自动递增
+    key                     TEXT    NOT NULL,                     -- 记忆标识符，如 'user_language'
+    value                   TEXT    NOT NULL,                     -- 记忆内容，如 'Python 3.11'
+    category                TEXT    DEFAULT '',                   -- 分类：preference（偏好）| tech_stack（技术栈）| project（项目）| workflow（工作流）| constraint（约束）| fact（事实）
+    confidence              REAL    DEFAULT 0.5,                  -- LLM 自评置信度 0.0~1.0，这条事实有多确定是真的
+    importance              REAL    DEFAULT 0.5,                  -- LLM 自评重要性 0.0~1.0，这条记忆对未来对话多有用
+    sensitivity             TEXT    DEFAULT 'low',                -- 敏感度：low（无害偏好）| medium（个人偏好）| high（隐私，不应自动保存）
+    action                  TEXT    DEFAULT 'store',              -- LLM 建议动作：store（保存为候选）| forget（丢弃，不值得记）
+    evidence                TEXT    DEFAULT '',                   -- 证据：来自对话原文的短摘录，供用户审核时核实
+    reason                  TEXT    DEFAULT '',                   -- LLM 自述：为什么觉得这条值得记住
+    source_conversation_id  INTEGER,                              -- 来源会话 ID（对应 conversations.id，知道是哪次聊天提取的）
+    source_message_ids      TEXT    DEFAULT '[]',                 -- 来源消息 ID 列表，JSON 数组如 '[1,2,3]'，定位到具体哪几句
+    status                  TEXT    DEFAULT 'pending',            -- 审核状态：pending（待确认）| accepted（用户已接受）| rejected（用户已拒绝）| auto_accepted（Phase 2 自动写入）
+    created_at              TEXT    DEFAULT (datetime('now','localtime')),  -- 候选创建时间
+    reviewed_at             TEXT                                  -- 审核时间（用户点了接受或拒绝才写入，空着表示还没审）
+);

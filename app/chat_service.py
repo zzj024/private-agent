@@ -40,16 +40,29 @@ class ChatService:
             "thread_id": thread_id,
         })
 
-        # 3. 尝试 v0.3 Reflexion 循环
+        # 3. 加载历史消息 + 用户记忆
+        from agent.graph import run_agent_with_reflexion, _load_conversation_messages, _load_user_memories
+        import asyncio
+        conv_id_int = None
+        if conversation_id is not None:
+            try:
+                conv_id_int = int(conversation_id)
+            except (ValueError, TypeError):
+                conv_id_int = None
+        msg_history = _load_conversation_messages(conv_id_int)
+        memory_context = _load_user_memories()
+
+        # 4. 尝试 v0.3 Reflexion 循环
         yield self._make_event("stage", {
             "stage": "正在思考...",
             "message": "分析你的问题，决定调用哪些工具",
         })
 
         try:
-            from agent.graph import run_agent_with_reflexion
-            import asyncio
-            result = await asyncio.to_thread(run_agent_with_reflexion, message, conversation_id)
+            result = await asyncio.to_thread(
+                run_agent_with_reflexion, message, conv_id_int,
+                msg_history, memory_context
+            )
         except Exception as e:
             result = None
             yield self._make_event("stage", {
@@ -68,8 +81,15 @@ class ChatService:
             config = {
                 "configurable": {"thread_id": thread_id},
             }
+            # Build messages: memory context → history → current message
+            streaming_messages = []
+            if memory_context:
+                streaming_messages.append(HumanMessage(content=memory_context))
+            if msg_history:
+                streaming_messages.extend(msg_history)
+            streaming_messages.append(HumanMessage(content=message))
             input_data = {
-                "messages": [HumanMessage(content=message)],
+                "messages": streaming_messages,
                 "original_question": message,
                 "thread_id": thread_id,
                 "request_id": request_id,

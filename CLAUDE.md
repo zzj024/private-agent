@@ -1,4 +1,4 @@
-﻿# CLAUDE.md
+# CLAUDE.md
 
 本文件为 Claude Code 在此项目中工作时提供指导。
 
@@ -8,60 +8,58 @@ Private Agent 是一个私人知识库管理员 + 长期记忆系统 + AI 文档
 
 ## 当前状态
 
-**版本：** v0.3（智能检索 A++ + 对话管理已实施）
-**状态：** 318 个测试全部通过
-**下一任务：** 被动记忆提取 / 知识库导入增强
+**版本：** v0.5
+**状态：** 所有 Bug 已修复，功能完整
+**测试：** 367 个测试（1 个预存在编码问题）
+
+## v0.5 新增功能
+
+### 前端重构
+- 双核工作台布局：侧边栏 + 主视图（Chat / Review / Library / Knowledge / Settings）
+- Notion + Linear 风格视觉系统，Toast 通知
+- 记忆审核卡片流：置信度进度条、证据展开、行内编辑、批量操作
+- 知识库：文件上传（系统原生弹窗多选）、每个文件独立进度条、双击分页浏览、搜索分页+编辑
+
+### 被动记忆提取
+- LLM 分析对话自动提取候选（改用统一 LLM 工厂，支持 Ollama/DeepSeek/Moonshot）
+- v0.5 自动分级：高可信(≥0.85) 直接存入、中信(0.6-0.85) 人工审核、低信(<0.6) 自动丢弃
+- 冲突检测：key 重复且值不同时强制送审，不覆盖旧值
+- 延迟从 120s 改为 20s
+
+### 记忆注入
+- 聊天时自动将已确认记忆注入 LLM 上下文
+- 对话历史自动加载（多轮上下文）
+
+### 统一 LLM 配置
+- 前端设置页面：预设卡片（Ollama/DeepSeek/Moonshot）+ 自定义新增 + 测试连接
+- `llm/factory.py` 统一工厂：全局所有 LLM 调用共用同一配置
+- 保存立即生效，无需重启
+
+### 聊天历史修复
+- ChatService 加载历史消息传入 LLM，解决"聊完就忘"问题
+- Reflexion 审核保持用 DeepSeek 专用客户端（避免编码问题）
+
+### Bug 修复
+- BUG-001: LLM 不按格式返回 JSON → 格式适配器 + 重写 prompt
+- BUG-002: 编辑文本块消失 → ChromaDB 改用 col.update()
+- BUG-003: 导入完成 Toast 重复弹出 → 加 notified 标记
+- BUG-005: 无关词搜索返回结果 → 删除兜底逻辑
+- BUG-006: 搜索结果无分页 → 新增结构化搜索 API + 弹窗分页
+- BUG-004: 编辑保存慢 → 乐观更新 UI
 
 ## 核心架构
-
-### ReAct 循环（v0.2）
-- 使用 LangGraph 的 create_react_agent
-- LLM 通过 bind_tools() 动态调用工具
-- 支持多意图处理和循环执行
-
-### Reflexion 循环（v0.3）
-- Agent 生成 -> 审核员打分 -> 未通过则带反馈重试 -> 循环
-- 工具层数据缓存：缓存原始数据（ChromaDB 结果），不缓存 LLM 答案
-- contextvars 传递 ReflexionState 给工具函数
-- 审核员通过 DeepSeek API 评估回答质量
-- 失败自动降级为普通 ReAct
-
-### 工具系统
-- search_knowledge: 搜索私有知识库（带缓存）
-- save_memory: 保存长期记忆
-- list_memories: 列出记忆（带缓存）
-- delete_memory: 删除记忆
-- delete_all_memories: 删除所有记忆
-
-### 统一聊天管线
-- ChatService 统一处理 /chat 和 /chat/stream
-- 使用 AsyncGenerator 实现事件流
-- 支持 SSE 流式输出 + 前端打字机效果
-
-### 智能检索 A++（v0.3）
-- 规则分类 narrow/normal/broad → 自适应探头 10/20/30
-- gap 规则预筛 → LLM relevance 打分（0-3）
-- 字符预算格式化替代固定条数
-- 详见 docs/SMART_SEARCH_DESIGN.md
-
-### 对话管理（v0.3）
-- 侧边栏会话列表 + 新建/切换/删除
-- 双击会话名重命名
-- 消息自动保存到 SQLite
-
-## 代码规范
 
 ### 文件组织
 - `agent/`: LangGraph 工作流、ReAct 循环、Reflexion 循环、工具定义
 - `app/`: FastAPI 路由和服务
 - `tools/`: 知识库检索工具
-- `llm/`: Ollama 客户端、DeepSeek 客户端
-- `memory/`: SQLite 存储
+- `llm/`: 统一 LLM 工厂 + Ollama/DeepSeek 客户端
+- `memory/`: SQLite 存储 + 被动提取
 - `rag/`: ChromaDB 向量存储 + 文档导入
 - `config/`: 全局配置
 - `knowledge/`: 本地笔记来源
-- `tests/`: 258 个测试
-- `static/`: 前端静态文件
+- `tests/`: 367 个测试
+- `static/`: 前端静态文件（单文件 index.html, ~1600 行）
 
 ### 命名约定
 - 文件名：snake_case
@@ -69,18 +67,11 @@ Private Agent 是一个私人知识库管理员 + 长期记忆系统 + AI 文档
 - 函数名：snake_case
 - 常量：UPPER_SNAKE_CASE
 
-### 测试规范
-- 单元测试：test_*.py
-- 集成测试：test_integration.py, test_reflexion_integration.py
-- 端到端测试：test_e2e.py
-- 性能测试：test_performance.py
-- 安全测试：test_security.py, test_reflexion_security.py
-
 ## 常用命令
 
 ### 运行应用
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
 ### 运行测试
@@ -88,38 +79,18 @@ uvicorn app.main:app --reload
 pytest tests/ -v
 ```
 
-### 运行特定测试
-```bash
-pytest tests/test_reflexion_state.py -v
-```
-
-## 注意事项
-
-### 编码问题
-- Windows 环境下使用 UTF-8 with BOM 编码
-- 测试文件中避免使用中文注释和字符串
-- 使用英文替代中文
-
-### chromadb 兼容性
-- chromadb 0.6.x 同时捕获 NotFoundError 和 InvalidCollectionException
-- get_collection 获取已有 collection 时需替换 _embedding_function
-- OllamaEmbed 类实现 __call__ 方法适配 Chroma 接口
-
-### LangGraph 版本
-- 使用 create_react_agent 构建 ReAct 循环
-- 需要 remaining_steps 字段
-- 使用 bind_tools() 绑定工具
-
-### Reflexion 循环
-- 缓存下沉到工具层：只缓存原始数据（ChromaDB 结果），不缓存 LLM 答案
-- 通过 contextvars 传递 ReflexionState，避免修改所有函数签名
-- reflexion_loop 失败后自动降级为 run_agent（普通 ReAct）
-- DeepSeek API key 从 .env 读取，源码默认值为空字符串
+### 注意事项
+- chromadb 需在 get_collection 后手动设置 _embedding_function
+- ChromaDB PersistentClient 单 worker 使用，多 worker 需改 server 模式
+- Windows 终端编码问题：优先使用英文测试
+- 被动记忆提取依赖 threading.Timer，uvicorn reload 时注意
+- get_chroma_store() 使用 @lru_cache 单例模式
 
 ## 相关文档
 
 - [README.md](README.md) — 项目说明
-- [ARCHITECTURE-v0.2.md](ARCHITECTURE-v0.2.md) — 系统架构
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 系统架构
 - [TECH_DEBT.md](TECH_DEBT.md) — 技术债务
-- [AGENTS.md](AGENTS.md) — 项目指南
-- [docs/SMART_SEARCH_DESIGN.md](docs/SMART_SEARCH_DESIGN.md) — 智能检索实施方案（A++）
+- [docs/BUGS.md](docs/BUGS.md) — Bug 记录
+- [docs/V0.5_DESIGN.md](docs/V0.5_DESIGN.md) — v0.5 设计文档
+- [docs/SMART_SEARCH_DESIGN.md](docs/SMART_SEARCH_DESIGN.md) — 智能检索方案

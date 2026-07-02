@@ -5,15 +5,17 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
-from langchain_ollama import ChatOllama
-
 from rag.chroma_store import get_chroma_store
 from config.settings import settings
 
 EXCERPT_MAX_CHARS = 450
 
-# LLM 实例（重排序用）
-_rerank_llm = ChatOllama(model=settings.ollama_chat_model, temperature=0)
+
+def _rerank_with_unified(prompt: str) -> str:
+    """v0.5: 使用统一 LLM 配置做重排序"""
+    from llm.factory import get_unified_llm
+    client = get_unified_llm()
+    return client.chat(messages=[{"role": "user", "content": prompt}])
 
 
 # ═══════════════════════════════════════════════
@@ -197,8 +199,7 @@ def llm_rerank_and_select(query: str, candidates: list[dict]) -> list[dict]:
 
     # 1. 构建 prompt，调 Qwen
     prompt = _build_rerank_prompt(query, candidates)
-    response = _rerank_llm.invoke(prompt)
-    content = response.content
+    content = _rerank_with_unified(prompt)
 
     # 2. 从返回内容里解析出 JSON
     try:
@@ -219,11 +220,7 @@ def llm_rerank_and_select(query: str, candidates: list[dict]) -> list[dict]:
         if item_id in by_label and relevance >= 2:
             selected.append(by_label[item_id])
 
-    # 5. 查空保护：LLM 返回空时保留前 2 条作为安全兜底
-    #    避免 LLM 误判导致 Agent 完全丢失知识库上下文
-    if not selected and len(candidates) >= 1:
-        return candidates[:2]
-
+    # 5. v0.5: LLM 判断都不相关 → 返回空，不再兜底
     return selected
 
 
@@ -234,6 +231,45 @@ def llm_rerank_and_select(query: str, candidates: list[dict]) -> list[dict]:
 def search_knowledge(query: str) -> str:
     """搜索私有知识库。使用智能检索 A++ 管线。"""
     return smart_search_knowledge(query)
+
+
+def search_knowledge_chunks(query: str, top_k: int = 40) -> dict:
+    """搜索知识库，返回结构化 chunk 列表（v0.5: 供前端分页展示）"""
+    try:
+        store = get_chroma_store()
+    except Exception:
+        return {"query": query, "chunks": [], "total": 0}
+
+    if store.count() == 0:
+        return {"query": query, "chunks": [], "total": 0}
+
+    from tools.knowledge_tools import assess_query_profile, rule_prefilter, llm_rerank_and_select
+    profile = assess_query_profile(query)
+    raw = store.search(query, n_results=min(max(top_k, profile.probe_k), store.count()))
+    if not raw:
+        return {"query": query, "chunks": [], "total": 0}
+
+    candidates = rule_prefilter(raw, profile)
+    if not candidates:
+        return {"query": query, "chunks": [], "total": 0}
+
+    # LLM 重排序（可能返回空）
+    try:
+        selected = llm_rerank_and_select(query, candidates)
+    except Exception:
+        selected = candidates
+
+    chunks = []
+    for item in (selected or []):
+        chunks.append({
+            "id": item.get("id", ""),
+            "text": item.get("document", ""),
+            "source": item.get("metadata", {}).get("source", ""),
+            "header": item.get("metadata", {}).get("header", ""),
+            "distance": item.get("distance", 0),
+        })
+
+    return {"query": query, "chunks": chunks, "total": len(chunks)}
 
 def format_knowledge_results(results: list[dict], max_chars: int) -> str:
     if not results:

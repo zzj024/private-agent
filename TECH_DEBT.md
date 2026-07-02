@@ -1,6 +1,29 @@
 ﻿# 技术债务文档
 
 > 记录当前版本已知的设计缺陷和待改进项，供后续版本逐步修复。
+>
+> **v0.5 更新：** 被动记忆提取、统一 LLM 配置、知识库管理、冲突检测已完成。当前主要债务：ChromaDB 多进程支持、embedding 性能。
+
+---
+
+## v0.5 已修复
+
+| 问题 | 修复 |
+|---|---|
+| LLM 不按格式返回 JSON | 重写 prompt + `_normalize_candidates()` 格式适配器 |
+| 编辑文本块消失 | ChromaDB `col.update()` 替代 delete+add |
+| 被动提取不产生候选 | 格式适配 + prompt 简化 |
+| 搜索返回无关结果 | 删除空结果兜底逻辑 |
+| get_chroma_store() 多实例 | `@lru_cache` 单例 |
+| 聊天不加载历史 | ChatService 注入历史消息 |
+| os.path 导入 | 统一使用 pathlib.Path |
+| update_chunk 不安全 | 改用原生 update 方法 + 线程锁 |
+
+## v0.5 遗留
+
+- ChromaDB PersistentClient 不支持多 worker → 单 worker 部署
+- embedding 调用 Ollama 较慢（~2.4s/次）→ 可考虑异步或批量优化
+- 前端单文件 ~1600 行 → 可拆分模块
 
 ---
 

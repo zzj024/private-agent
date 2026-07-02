@@ -3,164 +3,953 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Private Agent</title>
+<title>Private Agent — Memory-aware AI Workspace</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
-  .header { background: #2c3e50; color: white; padding: 16px 24px; }
-  .header h1 { font-size: 20px; }
-  .header small { opacity: 0.7; font-size: 12px; }
-  .nav { display: flex; background: #fff; border-bottom: 1px solid #ddd; flex-wrap: wrap; }
-  .nav a { padding: 12px 20px; text-decoration: none; color: #666; font-size: 14px; cursor: pointer; border-bottom: 2px solid transparent; }
-  .nav a:hover { color: #2c3e50; }
-  .nav a.active { color: #2c3e50; border-bottom-color: #2c3e50; font-weight: 600; }
-  .layout { display: flex; max-width: 1000px; margin: 0 auto; }
-  .sidebar { width: 220px; min-width: 220px; background: #fff; border-right: 1px solid #ddd; padding: 12px; display: none; flex-direction: column; gap: 4px; overflow-y: auto; max-height: calc(100vh - 100px); }
-  .sidebar.show { display: flex; }
-  .sidebar h4 { font-size: 12px; color: #999; margin: 4px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .conv-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative; }
-  .conv-item:hover { background: #f0f0f0; }
-  .conv-item.active { background: #e8f4fd; color: #2c3e50; font-weight: 600; }
-  .conv-item .del-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; background: #ddd; color: #666; font-size: 12px; display: none; cursor: pointer; }
-  .conv-item:hover .del-btn { display: block; }
-  .conv-item .del-btn:hover { background: #c0392b; color: #fff; }
-  .btn-new-conv { width: 100%; padding: 6px; border-radius: 6px; border: 1px dashed #ccc; background: #fff; color: #666; cursor: pointer; font-size: 13px; }
-  .btn-new-conv:hover { border-color: #2c3e50; color: #2c3e50; }
-  .main { flex: 1; padding: 24px; min-width: 0; }
-  .panel { display: none; }
-  .panel.active { display: block; }
-  .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-  .card h3 { font-size: 15px; margin-bottom: 12px; color: #2c3e50; }
-  input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; }
-  input:focus { outline: none; border-color: #2c3e50; }
-  button { background: #2c3e50; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; }
-  button:hover { background: #34495e; }
-  .btn-sm { padding: 4px 12px; font-size: 12px; }
-  .btn-green { background: #27ae60; }
-  .btn-green:hover { background: #2ecc71; }
-  .result { margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 6px; white-space: pre-wrap; font-size: 14px; display: none; }
-  .result.show { display: block; }
-  .result.error { background: #fff5f5; color: #c0392b; }
-  .mem-item { padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px; }
-  .mem-item:last-child { border-bottom: none; }
-  .mem-key { font-weight: 600; color: #2c3e50; }
-  .mem-cat { font-size: 12px; color: #999; margin-left: 8px; }
-  .loading { display: none; color: #999; font-size: 13px; margin-top: 8px; }
-  .loading.show { display: block; }
-  .loading::after { content: '...'; animation: dots 1.5s steps(4, end) infinite; }
-  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
-  .chat-box { max-height: 400px; overflow-y: auto; margin-bottom: 12px; }
-  .msg { margin-bottom: 8px; }
-  .msg.user { text-align: right; }
-  .msg.assistant { text-align: left; }
-  .bubble { display: inline-block; max-width: 85%; padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.7; text-align: left; }
-  .msg.user .bubble { background: #e8f4fd; border-bottom-right-radius: 4px; }
-  .msg.assistant .bubble { background: #f0f0f0; border-bottom-left-radius: 4px; }
-  .bubble p { margin: 0.45rem 0 0.75rem; }
-  .bubble ol, .bubble ul { margin: 0.6rem 0 0.9rem; padding-left: 1.5rem; }
-  .bubble li { margin: 0.65rem 0; line-height: 1.7; }
-  .bubble strong { font-weight: 700; }
-  .bubble code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
-  .input-row { display: flex; gap: 8px; margin-top: 8px; }
-  .input-row input { flex: 1; }
+/* ═══════════════════════════════════════════════
+   DESIGN SYSTEM — Notion + Linear + AI Copilot
+   ═══════════════════════════════════════════════ */
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --text: #1f2937;
+  --subtext: #6b7280;
+  --border: #e5e7eb;
+  --primary: #2c3e50;
+  --accent: #3b82f6;
+  --accent-light: #eff6ff;
+  --success: #27ae60;
+  --success-light: #ecfdf5;
+  --danger: #c0392b;
+  --danger-light: #fef2f2;
+  --warn-bg: #fffbeb;
+  --warn-border: #fde68a;
+  --warn-text: #92400e;
+  --memory: #e8f4fd;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --transition: 150ms ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════════
+   HEADER
+   ═══════════════════════════════════════════════ */
+.header {
+  height: 52px;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  position: relative;
+  z-index: 100;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+.header-logo { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+.header-version { font-size: 11px; opacity: 0.55; background: rgba(255,255,255,0.12); padding: 2px 8px; border-radius: 10px; }
+.header-right { display: flex; align-items: center; gap: 8px; }
+
+.memory-badge {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--accent);
+  padding: 6px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all var(--transition);
+  border: none;
+  color: #fff;
+  position: relative;
+}
+.memory-badge:hover { background: #2563eb; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(59,130,246,0.4); }
+.memory-badge:active { transform: translateY(0); }
+.memory-badge.pulse { animation: badgePulse 0.4s ease; }
+@keyframes badgePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+.memory-badge .count {
+  background: #fff;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 12px;
+  min-width: 20px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  border-radius: 10px;
+  padding: 0 4px;
+}
+
+/* ═══════════════════════════════════════════════
+   LAYOUT
+   ═══════════════════════════════════════════════ */
+.container {
+  display: flex;
+  height: calc(100vh - 52px);
+}
+
+/* ═══════════════════════════════════════════════
+   SIDEBAR
+   ═══════════════════════════════════════════════ */
+.sidebar {
+  width: 260px;
+  min-width: 260px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-nav {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.nav-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--subtext);
+  transition: all var(--transition);
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+.nav-item:hover { background: #f3f4f6; color: var(--text); }
+.nav-item.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+.nav-item .nav-badge {
+  margin-left: auto;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+.nav-item .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+.sidebar-section {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+.sidebar-section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.sidebar-section-header h4 {
+  font-size: 11px;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.btn-new-conv {
+  width: 100%;
+  padding: 7px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed #d1d5db;
+  background: #fff;
+  color: var(--subtext);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all var(--transition);
+}
+.btn-new-conv:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+
+.conv-item {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: #444;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all var(--transition);
+  margin-bottom: 2px;
+}
+.conv-item:hover { background: #f3f4f6; }
+.conv-item.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+.conv-item .conv-icon { font-size: 14px; opacity: 0.5; flex-shrink: 0; }
+.conv-item .conv-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-item .conv-date { font-size: 10px; color: #bbb; flex-shrink: 0; }
+.conv-item .del-btn {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; line-height: 20px; text-align: center;
+  border-radius: 50%; background: #e5e7eb; color: #888; font-size: 11px;
+  display: none; cursor: pointer; border: none;
+  transition: all var(--transition);
+}
+.conv-item:hover .del-btn { display: block; }
+.conv-item .del-btn:hover { background: var(--danger); color: #fff; }
+
+/* ═══════════════════════════════════════════════
+   MAIN WORKSPACE
+   ═══════════════════════════════════════════════ */
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* View panels */
+.view { display: none; flex-direction: column; flex: 1; }
+.view.active { display: flex; }
+
+.view-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+}
+.view-header h2 { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+.view-header-actions { display: flex; gap: 8px; }
+
+/* ═══════════════════════════════════════════════
+   CARDS
+   ═══════════════════════════════════════════════ */
+.card {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition), transform var(--transition);
+  border: 1px solid var(--border);
+}
+.card:hover { box-shadow: var(--shadow-md); }
+
+.card-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.card-key {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; gap: 6px;
+}
+.card-category {
+  font-size: 11px; font-weight: 500;
+  padding: 1px 8px; border-radius: 10px;
+  background: #f3f4f6; color: var(--subtext);
+}
+.card-category.preference { background: #ede9fe; color: #7c3aed; }
+.card-category.tech_stack { background: #dbeafe; color: #2563eb; }
+.card-category.project { background: #d1fae5; color: #059669; }
+.card-category.workflow { background: #fef3c7; color: #d97706; }
+.card-category.constraint { background: #fee2e2; color: #dc2626; }
+.card-category.fact { background: #e0e7ff; color: #4f46e5; }
+
+.card-value { font-size: 14px; color: #444; margin-bottom: 8px; line-height: 1.6; }
+
+/* Confidence bar */
+.conf-bar {
+  height: 5px; background: #e5e7eb; border-radius: 3px;
+  margin: 8px 0; overflow: hidden;
+}
+.conf-fill { height: 5px; border-radius: 3px; transition: width 0.3s ease; }
+.conf-high { background: var(--success); }
+.conf-mid { background: #f59e0b; }
+.conf-low { background: var(--danger); }
+.conf-label {
+  font-size: 11px; color: var(--subtext);
+  display: flex; justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+/* Evidence */
+.evidence-toggle {
+  font-size: 12px; color: var(--accent); cursor: pointer;
+  padding: 2px 0; transition: color var(--transition);
+  user-select: none;
+}
+.evidence-toggle:hover { color: #1d4ed8; }
+.evidence-body {
+  display: none;
+  margin-top: 6px; padding: 10px 12px;
+  background: #f9fafb; border-radius: var(--radius-sm);
+  font-size: 12px; color: #666;
+  max-height: 160px; overflow-y: auto;
+  border: 1px solid #f3f4f6;
+}
+.evidence-body.open { display: block; }
+.evidence-msg { padding: 6px 0; border-bottom: 1px solid #f3f4f6; }
+.evidence-msg:last-child { border-bottom: none; }
+.evidence-msg .role { font-weight: 600; font-size: 11px; color: #999; text-transform: uppercase; margin-bottom: 2px; }
+
+/* Card actions */
+.card-actions {
+  display: flex; gap: 6px; margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid #f3f4f6;
+}
+
+/* Edit inline */
+.edit-form { display: none; margin-top: 8px; }
+.edit-form.open { display: block; }
+.edit-form label { font-size: 11px; color: var(--subtext); font-weight: 500; display: block; margin-bottom: 2px; margin-top: 6px; }
+.edit-form input, .edit-form select {
+  width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: var(--radius-sm);
+  font-size: 13px; font-family: inherit; margin-bottom: 4px;
+}
+.edit-form input:focus, .edit-form select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
+.edit-form-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+/* ═══════════════════════════════════════════════
+   BUTTONS
+   ═══════════════════════════════════════════════ */
+.btn {
+  padding: 7px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+  cursor: pointer; border: none; transition: all var(--transition);
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: inherit;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #2563eb; box-shadow: 0 2px 8px rgba(59,130,246,0.3); }
+
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { background: #219a52; box-shadow: 0 2px 8px rgba(39,174,96,0.3); }
+
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { background: #a93226; box-shadow: 0 2px 8px rgba(192,57,43,0.3); }
+
+.btn-ghost { background: transparent; color: var(--subtext); border: 1px solid #d1d5db; }
+.btn-ghost:hover { background: #f9fafb; color: var(--text); }
+
+.btn-sm { padding: 4px 10px; font-size: 11px; }
+.btn-xs { padding: 3px 8px; font-size: 10px; }
+
+.btn-accept { background: var(--success); color: #fff; font-weight: 600; padding: 8px 20px; }
+.btn-accept:hover { background: #219a52; }
+.btn-reject { background: #fff; color: var(--danger); border: 1px solid #fca5a5; padding: 8px 20px; font-weight: 500; }
+.btn-reject:hover { background: var(--danger-light); }
+.btn-edit { background: #fff; color: var(--subtext); border: 1px solid #d1d5db; padding: 8px 16px; }
+.btn-edit:hover { background: #f9fafb; }
+
+/* ═══════════════════════════════════════════════
+   CHAT
+   ═══════════════════════════════════════════════ */
+.chat-container {
+  flex: 1; display: flex; flex-direction: column;
+  background: var(--panel); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); border: 1px solid var(--border);
+  overflow: hidden;
+}
+.chat-box {
+  flex: 1; overflow-y: auto; padding: 20px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.chat-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; color: #ccc; gap: 12px;
+}
+.chat-empty-icon { font-size: 48px; opacity: 0.3; }
+.chat-empty-text { font-size: 14px; }
+
+.msg { display: flex; margin-bottom: 4px; animation: msgIn 0.2s ease; }
+@keyframes msgIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.msg.user { justify-content: flex-end; }
+.msg.assistant { justify-content: flex-start; }
+.bubble {
+  max-width: 80%; padding: 10px 16px; border-radius: 14px;
+  font-size: 14px; line-height: 1.65; word-wrap: break-word;
+}
+.msg.user .bubble { background: var(--accent-light); color: var(--text); border-bottom-right-radius: 4px; }
+.msg.assistant .bubble { background: #f3f4f6; color: var(--text); border-bottom-left-radius: 4px; }
+.bubble p { margin: 0.35rem 0 0.6rem; }
+.bubble p:first-child { margin-top: 0; }
+.bubble p:last-child { margin-bottom: 0; }
+.bubble ol, .bubble ul { margin: 0.5rem 0 0.8rem; padding-left: 1.5rem; }
+.bubble li { margin: 0.5rem 0; line-height: 1.6; }
+.bubble strong { font-weight: 700; }
+.bubble code { background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+.bubble pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; }
+.bubble pre code { background: none; padding: 0; color: inherit; }
+
+.chat-input-area { padding: 16px 20px; border-top: 1px solid var(--border); background: #fafafa; }
+.chat-input-row { display: flex; gap: 8px; }
+.chat-input-row input { flex: 1; }
+.chat-input-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
+
+input, select {
+  padding: 10px 14px; border: 1px solid #d1d5db; border-radius: var(--radius-sm);
+  font-size: 14px; font-family: inherit; transition: all var(--transition);
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
+
+.chat-status {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px;
+  font-size: 12px; color: var(--subtext); min-height: 20px;
+}
+.chat-status .dot { width: 6px; height: 6px; border-radius: 50%; background: #ccc; }
+.chat-status .dot.thinking { background: var(--accent); animation: dotPulse 0.8s ease infinite; }
+@keyframes dotPulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+/* ═══════════════════════════════════════════════
+   REVIEW VIEW
+   ═══════════════════════════════════════════════ */
+.review-toolbar {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.review-toolbar .filter-btn {
+  padding: 5px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;
+  border: 1px solid #d1d5db; background: #fff; color: var(--subtext);
+  transition: all var(--transition); font-family: inherit;
+}
+.review-toolbar .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+.review-toolbar .filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.review-list { display: flex; flex-direction: column; gap: 10px; }
+
+.memory-card {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  transition: all var(--transition);
+}
+.memory-card:hover { box-shadow: var(--shadow-md); }
+.memory-card.high-confidence { border-left-color: var(--success); }
+.memory-card.mid-confidence { border-left-color: #f59e0b; }
+.memory-card.low-confidence { border-left-color: var(--danger); }
+.memory-card.fading { opacity: 0; transform: translateX(20px); transition: all 0.3s ease; }
+.memory-card.editing { border-left-color: #8b5cf6; box-shadow: 0 0 0 2px rgba(139,92,246,0.15); }
+
+/* ═══════════════════════════════════════════════
+   LIBRARY VIEW
+   ═══════════════════════════════════════════════ */
+.library-toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+.library-toolbar input { flex: 1; }
+.library-list { display: flex; flex-direction: column; gap: 8px; }
+
+.memory-item {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  transition: all var(--transition);
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.memory-item:hover { box-shadow: var(--shadow-md); }
+.memory-item-left { flex: 1; min-width: 0; }
+.memory-item-key { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.memory-item-value { font-size: 13px; color: #555; line-height: 1.5; word-break: break-word; }
+.memory-item-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.memory-item-meta span {
+  font-size: 11px; color: var(--subtext);
+  background: #f3f4f6; padding: 2px 8px; border-radius: 10px;
+}
+.memory-item-meta .tag-source-passive { background: var(--memory); color: #1e40af; }
+.memory-item-meta .tag-source-explicit { background: #fef3c7; color: #92400e; }
+.memory-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════
+   KNOWLEDGE VIEW
+   ═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════
+   KNOWLEDGE BASE
+   ═══════════════════════════════════════════════ */
+.kb-layout { display: flex; flex-direction: column; gap: 20px; }
+.kb-card {}
+.kb-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.kb-card-top h3 { font-size: 16px; margin: 0; }
+.kb-sub { font-size: 12px; color: var(--subtext); margin: 3px 0 0; }
+.kb-btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.kb-section { margin-bottom: 12px; }
+.kb-section-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.kb-muted { color: var(--subtext); font-weight: 400; }
+.kb-file-list { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: #fff; }
+.kb-file-list.empty { padding: 16px; color: var(--subtext); text-align: center; border-style: dashed; font-size: 13px; }
+.kb-file-item { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f3f4f6; position: relative; }
+.kb-file-item:last-child { border-bottom: none; }
+.kb-file-bar-wrap { position: absolute; bottom:0; left:0; height:3px; background: #e5e7eb; width:100%; }
+.kb-file-bar-fill { height:100%; background: var(--success); transition: width 0.3s ease; border-radius: 0 3px 0 0; }
+.kb-file-item.done { background: #f0fdf4; }
+.kb-file-item.failed { background: #fef2f2; }
+.kb-file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.kb-file-meta { color: var(--subtext); font-size: 12px; white-space: nowrap; }
+.kb-file-del { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 12px; padding: 2px 6px; border-radius: 4px; }
+.kb-file-del:hover { background: var(--danger-light); }
+.kb-file-table { margin-bottom: 12px; }
+.kb-thead { display: grid; grid-template-columns: 1fr 100px 80px; gap: 10px; padding: 8px 14px; font-size: 12px; font-weight: 600; color: var(--subtext); border-bottom: 2px solid var(--border); }
+.kb-imported-item { display: grid; grid-template-columns: 1fr 100px 80px; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f3f4f6; cursor: pointer; }
+.kb-imported-item:hover { background: #f9fafb; }
+.kb-search-panel { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.kb-search-panel.hidden { display: none; }
+.kb-search-result { margin-top: 10px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; color: var(--text); max-height: 350px; overflow-y: auto; }
+.kb-search-result.empty { color: var(--subtext); }
+
+/* Settings */
+.settings-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.set-card { border: 2px solid var(--border); border-radius: 10px; padding: 16px; cursor: pointer; transition: all 0.15s ease; text-align: center; }
+.set-card:hover { border-color: var(--accent); box-shadow: 0 2px 12px rgba(59,130,246,0.1); }
+.set-card.active { border-color: var(--accent); background: var(--accent-light); }
+.set-card-icon { font-size: 32px; margin-bottom: 6px; }
+.set-card-name { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+.set-card-desc { font-size: 11px; color: var(--subtext); }
+.set-card-badge { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+.set-card-badge.local { background: #d1fae5; color: #065f46; }
+.set-card-badge.cloud { background: #dbeafe; color: #1e40af; }
+
+/* Chunk viewer modal */
+.modal-overlay { position: fixed; inset:0; background: rgba(0,0,0,0.4); z-index:9999; display:flex; align-items:center; justify-content:center; }
+.modal-overlay.hidden { display:none; }
+.modal-box { background: var(--panel); border-radius: 12px; width: 90%; max-width: 800px; max-height: 80vh; display:flex; flex-direction:column; box-shadow: 0 12px 40px rgba(0,0,0,0.2); animation: modalIn 0.2s ease; }
+@keyframes modalIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+.modal-head { display:flex; justify-content:space-between; align-items:center; padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight:700; font-size:15px; }
+.modal-close { background:none; border:none; font-size:22px; cursor:pointer; color: var(--subtext); line-height:1; padding:0 4px; }
+.modal-close:hover { color: var(--danger); }
+.modal-page { display:flex; justify-content:center; gap:8px; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.modal-page button { padding:4px 10px; border-radius:4px; border:1px solid #d1d5db; background:#fff; cursor:pointer; font-size:12px; }
+.modal-page button:disabled { opacity:0.4; cursor: not-allowed; }
+.modal-page button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.modal-body { flex:1; overflow-y:auto; padding: 12px 20px; }
+.kb-chunk-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 10px; font-size: 13px; line-height:1.6; }
+.kb-chunk-card .chunk-id { font-size: 11px; color: var(--subtext); margin-bottom: 4px; }
+.kb-chunk-card .chunk-header { font-size: 12px; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+.kb-chunk-actions { display:flex; gap:6px; margin-top:8px; }
+.kb-chunk-edit-area { display:none; margin-top:8px; }
+.kb-chunk-edit-area.open { display:block; }
+.kb-chunk-edit-area textarea { width:100%; min-height:80px; font-size:13px; border:1px solid #d1d5db; border-radius:6px; padding:8px; font-family:inherit; resize:vertical; }
+
+/* ═══════════════════════════════════════════════
+   TOAST
+   ═══════════════════════════════════════════════ */
+.toast-container {
+  position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  background: var(--primary); color: #fff;
+  padding: 12px 18px; border-radius: var(--radius);
+  font-size: 13px; font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  display: flex; align-items: center; gap: 10px;
+  animation: toastIn 0.3s ease;
+  cursor: pointer;
+  max-width: 360px;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+.toast.fadeout { animation: toastOut 0.3s ease forwards; }
+@keyframes toastOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(16px); } }
+.toast .toast-icon { font-size: 18px; }
+
+/* ═══════════════════════════════════════════════
+   EMPTY STATE
+   ═══════════════════════════════════════════════ */
+.empty-state {
+  text-align: center; padding: 60px 20px; color: #bbb;
+}
+.empty-state-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
+.empty-state-text { font-size: 14px; }
+
+/* ═══════════════════════════════════════════════
+   LOADING
+   ═══════════════════════════════════════════════ */
+.spinner {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid #e5e7eb; border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════ */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #bbb; }
+
+/* ═══════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .sidebar { width: 200px; min-width: 200px; }
+  .main { padding: 16px; }
+  .knowledge-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
-<div class="header">
-  <h1>Private Agent</h1>
-  <small>私人知识库管理员 v0.3</small>
-</div>
-<div class="nav">
-  <a class="active" onclick="switchTab('chat',this)">💬 聊天</a>
-  <a onclick="switchTab('kb',this)">📚 知识库</a>
-  <a onclick="switchTab('import',this)">📥 导入</a>
-  <a onclick="switchTab('memory',this)">🧠 记忆</a>
-</div>
-<div class="layout">
-<div class="sidebar show" id="conversationSidebar">
-  <h4>会话</h4>
-  <button class="btn-new-conv" onclick="newConversation()">+ 新建会话</button>
-  <div id="conversationList" style="margin-top:8px"></div>
-</div>
-<div class="main">
-<div class="panel active" id="panel-chat">
-  <div class="card">
-    <h3>与 Agent 对话</h3>
-    <div class="chat-box" id="chatBox"></div>
-    <div class="input-row">
-      <input id="chatInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter')sendChat()">
-      <button class="btn-sm" id="typewriterToggle" onclick="toggleTypewriter()" style="font-size:11px;padding:2px 10px;white-space:nowrap">打字: 开</button>
-      <button id="sendBtn" onclick="sendChat()">发送</button>
+
+<!-- ═══════════════════════════════════════════════
+     HEADER
+     ═══════════════════════════════════════════════ -->
+<header class="header">
+  <div class="header-left">
+    <span class="header-logo">🧠 Private Agent</span>
+    <span class="header-version">v0.4</span>
+  </div>
+  <div class="header-right">
+    <button class="memory-badge" id="memoryBadge" onclick="switchView('review')" title="查看待审核记忆">
+      🧠 记忆 <span class="count" id="badgeCount">0</span>
+    </button>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════
+     LAYOUT
+     ═══════════════════════════════════════════════ -->
+<div class="container">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-view="chat" onclick="switchView('chat')">
+        <span class="nav-icon">💬</span> 聊天
+      </button>
+      <button class="nav-item" data-view="review" onclick="switchView('review')">
+        <span class="nav-icon">✅</span> 审核
+        <span class="nav-badge" id="navBadge" style="display:none">0</span>
+      </button>
+      <button class="nav-item" data-view="library" onclick="switchView('library')">
+        <span class="nav-icon">📚</span> 记忆库
+      </button>
+      <button class="nav-item" data-view="knowledge" onclick="switchView('knowledge')">
+        <span class="nav-icon">🔍</span> 知识库
+      </button>
+      <button class="nav-item" data-view="settings" onclick="switchView('settings')">
+        <span class="nav-icon">⚙️</span> 设置
+      </button>
+    </nav>
+    <div class="sidebar-section">
+      <div class="sidebar-section-header">
+        <h4>会话列表</h4>
+      </div>
+      <button class="btn-new-conv" onclick="newConversation()" style="margin-bottom:10px">+ 新建会话</button>
+      <div id="conversationList"></div>
     </div>
-    <div class="loading" id="chatLoading">思考中</div>
-  </div>
-</div>
-<div class="panel" id="panel-kb">
-  <div class="card">
-    <h3>搜索知识库</h3>
-    <div class="input-row">
-      <input id="kbQuery" placeholder="输入搜索词..." onkeydown="if(event.key==='Enter')searchKb()">
-      <button onclick="searchKb()">搜索</button>
+  </aside>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="main">
+
+    <!-- ═══════════════════════════ CHAT VIEW ═══════════════════════════ -->
+    <div class="view active" id="view-chat">
+      <div class="chat-container">
+        <div class="chat-box" id="chatBox">
+          <div class="chat-empty">
+            <div class="chat-empty-icon">💬</div>
+            <div class="chat-empty-text">开始对话 — 你的记忆感知 AI 助手已就绪</div>
+          </div>
+        </div>
+        <div class="chat-input-area">
+          <div class="chat-input-row">
+            <input id="chatInput" placeholder="Type your message..." onkeydown="if(event.key==='Enter')sendChat()" autofocus>
+            <button class="btn btn-sm btn-ghost" id="typewriterToggle" onclick="toggleTypewriter()" style="white-space:nowrap;font-size:11px">
+              打字: 开
+            </button>
+            <button class="btn btn-primary" id="sendBtn" onclick="sendChat()">发送</button>
+          </div>
+          <div class="chat-status" id="chatStatus"></div>
+        </div>
+      </div>
     </div>
-    <div class="loading" id="kbLoading">搜索中</div>
-    <div class="result" id="kbResult"></div>
-  </div>
-  <div class="card">
-    <h3>知识库状态</h3>
-    <p style="color:#666" id="kbStatus">导入本地笔记后显示状态。</p>
-  </div>
-</div>
-<div class="panel" id="panel-import">
-  <div class="card">
-    <h3>导入本地笔记</h3>
-    <p style="color:#666;font-size:13px;margin-bottom:8px">将 knowledge/ 目录下的 .md/.txt 文件导入知识库</p>
-    <input id="localDir" value="knowledge" placeholder="目录路径" style="margin-bottom:8px">
-    <button class="btn-green" onclick="ingestLocal()">开始导入</button>
-    <div class="loading" id="localLoading">导入中（较慢，请等待）</div>
-    <div class="result" id="localResult"></div>
-  </div>
-</div>
-<div class="panel" id="panel-memory">
-  <div class="card">
-    <h3>长期记忆</h3>
-    <div style="margin-bottom:12px">
-      <button class="btn-sm" onclick="loadMemories('')">全部</button>
-      <button class="btn-sm" onclick="loadMemories('tech_stack')">技术栈</button>
-      <button class="btn-sm" onclick="loadMemories('weak_point')">薄弱点</button>
-      <button class="btn-sm" onclick="loadMemories('goal')">目标</button>
-      <button class="btn-sm" onclick="loadMemories('preference')">偏好</button>
-      <button class="btn-sm" onclick="deleteAllMem()" style="background:#c0392b;color:#fff;float:right">清空所有</button>
+
+    <!-- ═══════════════════════════ REVIEW VIEW ═══════════════════════════ -->
+    <div class="view" id="view-review">
+      <div class="view-header">
+        <h2>记忆审核</h2>
+        <div class="view-header-actions">
+          <button class="btn btn-sm btn-ghost" onclick="acceptAllCandidates()">全部接受</button>
+          <button class="btn btn-sm btn-ghost" onclick="rejectAllCandidates()">全部拒绝</button>
+        </div>
+      </div>
+      <div class="review-toolbar">
+        <span style="font-size:12px;color:var(--subtext);margin-right:4px">筛选:</span>
+        <button class="filter-btn active" data-filter="all" onclick="setReviewFilter('all',this)">全部</button>
+        <button class="filter-btn" data-filter="high" onclick="setReviewFilter('high',this)">高可信</button>
+        <button class="filter-btn" data-filter="mid" onclick="setReviewFilter('mid',this)">中可信</button>
+        <button class="filter-btn" data-filter="low" onclick="setReviewFilter('low',this)">低可信</button>
+        <span style="margin-left:auto;font-size:12px;color:var(--subtext)" id="reviewCount"></span>
+      </div>
+      <div class="review-list" id="reviewList"></div>
+      <div class="empty-state" id="reviewEmpty" style="display:none">
+        <div class="empty-state-icon">✨</div>
+        <div class="empty-state-text">暂无待审核的记忆</div>
+      </div>
     </div>
-    <div id="memoryList"></div>
-    <div class="loading" id="memLoading">加载中</div>
-  </div>
-</div>
-</div>
+
+    <!-- ═══════════════════════════ LIBRARY VIEW ═══════════════════════════ -->
+    <div class="view" id="view-library">
+      <div class="view-header">
+        <h2>记忆库</h2>
+        <div class="view-header-actions">
+          <button class="btn btn-sm btn-danger" onclick="deleteAllMem()">清空全部</button>
+        </div>
+      </div>
+      <div class="library-toolbar">
+        <input id="librarySearch" placeholder="搜索记忆..." oninput="loadLibrary()">
+        <select id="libraryCategory" onchange="loadLibrary()">
+          <option value="">全部分类</option>
+          <option value="preference">偏好</option>
+          <option value="tech_stack">技术栈</option>
+          <option value="weak_point">薄弱点</option>
+          <option value="goal">目标</option>
+          <option value="project">项目</option>
+          <option value="workflow">工作流</option>
+          <option value="constraint">约束</option>
+          <option value="fact">事实</option>
+        </select>
+        <select id="librarySource" onchange="loadLibrary()">
+          <option value="">全部来源</option>
+          <option value="passive">被动提取</option>
+          <option value="explicit">手动记录</option>
+        </select>
+      </div>
+      <div class="library-list" id="libraryList"></div>
+      <div class="empty-state" id="libraryEmpty" style="display:none">
+        <div class="empty-state-icon">📭</div>
+        <div class="empty-state-text">暂无记忆</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════ KNOWLEDGE VIEW ═══════════════════════════ -->
+    <div class="view" id="view-knowledge">
+      <div class="view-header"><h2>知识库管理</h2></div>
+      <div class="kb-layout">
+
+        <!-- 导入卡片 -->
+        <div class="card kb-card">
+          <div class="kb-card-top">
+            <div><h3>📥 导入文档</h3><p class="kb-sub">选择本地 .md / .txt 文件，多选后逐个异步导入</p></div>
+          </div>
+          <input type="file" id="kbFileInput" accept=".md,.txt" multiple style="display:none" onchange="kbHandleFiles(this.files)">
+          <div class="kb-btn-row">
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('kbFileInput').click()">📁 选择文件</button>
+            <button class="btn btn-success btn-sm" id="kbStartBtn" onclick="kbStartImport()" disabled>开始导入</button>
+            <button class="btn btn-ghost btn-sm" id="kbClearBtn" onclick="kbClearSelection()" disabled>清空</button>
+          </div>
+          <div class="kb-section">
+            <div class="kb-section-head"><span>文件列表</span><span class="kb-muted" id="kbSelCount">0 个文件</span></div>
+            <div class="kb-file-list empty" id="kbSelList">暂未选择文件</div>
+          </div>
+        </div>
+
+        <!-- 浏览卡片 -->
+        <div class="card kb-card">
+          <div class="kb-card-top">
+            <div><h3>📚 已导入文档</h3><p class="kb-sub">双击文件名查看文本块</p></div>
+            <button class="btn btn-ghost btn-sm" onclick="kbRefresh()">🔄 刷新</button>
+          </div>
+          <div class="kb-file-table">
+            <div class="kb-thead"><span>文件名</span><span>Chunks</span><span>操作</span></div>
+            <div class="kb-file-list empty" id="kbImpList">暂无已导入文档</div>
+          </div>
+          <div class="kb-btn-row" style="justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" onclick="kbToggleSearch()">🔍 搜索</button>
+            <button class="btn btn-danger btn-sm" onclick="kbClearAll()">🗑 清空知识库</button>
+          </div>
+          <div class="kb-search-panel hidden" id="kbSearchPanel">
+            <div style="display:flex;gap:8px">
+              <input id="kbSearchInput" placeholder="搜索..." style="flex:1" onkeydown="if(event.key==='Enter')kbSearch()">
+              <button class="btn btn-primary btn-sm" onclick="kbSearch()">搜索</button>
+            </div>
+            <div class="kb-search-result" id="kbSearchResult"></div>
+            <div id="kbSearchPager" style="display:flex;justify-content:center;gap:8px;padding:8px 0;font-size:13px"></div>
+            <div id="kbSearchBody"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Chunk Viewer Modal -->
+    <div class="modal-overlay hidden" id="kbModal">
+      <div class="modal-box">
+        <div class="modal-head">
+          <span id="kbModalTitle">文本块</span>
+          <button class="modal-close" onclick="kbCloseModal()">&times;</button>
+        </div>
+        <div class="modal-page" id="kbModalPager"></div>
+        <div class="modal-body" id="kbModalBody"></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════ SETTINGS VIEW ═══════════════════════════ -->
+    <div class="view" id="view-settings">
+      <div class="view-header"><h2>⚙️ 大模型设置</h2></div>
+      <div style="display:flex;flex-direction:column;gap:16px;max-width:720px">
+
+        <!-- 预设卡片 -->
+        <div class="card">
+          <h3 style="font-size:15px;margin-bottom:12px">📦 选择提供商 <span style="font-size:12px;color:var(--accent);font-weight:500" id="setActiveLabel"></span></h3>
+          <div class="settings-cards" id="setCards"></div>
+        </div>
+
+        <!-- 当前选中配置 -->
+        <div class="card" id="setDetailCard" style="display:none">
+          <h3 style="font-size:15px;margin-bottom:12px" id="setDetailTitle">配置详情</h3>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;gap:8px">
+              <div style="flex:1"><label style="font-size:12px;font-weight:600">模型</label><input id="setModel"></div>
+              <div style="flex:1"><label style="font-size:12px;font-weight:600">API 地址</label><input id="setBaseUrl"></div>
+            </div>
+            <div id="setKeyWrap">
+              <label style="font-size:12px;font-weight:600">API Key <span id="setKeyStatus" style="color:var(--success);font-weight:400"></span></label>
+              <input id="setApiKey" type="password" placeholder="sk-... 留空则不修改">
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="saveSettings()">💾 保存</button>
+              <button class="btn btn-ghost" onclick="testConnection()" id="setTestBtn">🔗 测试连接</button>
+            </div>
+            <div id="setMsg" style="font-size:12px;color:var(--subtext)"></div>
+            <div id="setTestResult" style="font-size:12px;padding:8px;border-radius:6px;display:none"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
 </div>
 
+<!-- ═══════════════════════════════════════════════
+     TOAST CONTAINER
+     ═══════════════════════════════════════════════ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ═══════════════════════════════════════════════
+     SCRIPTS
+     ═══════════════════════════════════════════════ -->
 <script>
+// ═══════════════════════════════════════════════
+// GLOBAL STATE
+// ═══════════════════════════════════════════════
 var markedOk = false, purifyOk = false;
-var currentConversationId = null;
-var typewriterOn = true;
 try { marked.setOptions({gfm:true,breaks:true}); markedOk = true; } catch(e){}
 try { DOMPurify.sanitize('t'); purifyOk = true; } catch(e){}
 
-function switchTab(name, el) {
-  document.querySelectorAll('.nav a').forEach(function(a){a.classList.remove('active');});
-  document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active');});
-  el.classList.add('active');
-  document.getElementById('panel-'+name).classList.add('active');
-  var sidebar = document.getElementById('conversationSidebar');
-  if (name === 'chat') { sidebar.classList.add('show'); } else { sidebar.classList.remove('show'); }
-  if (name === 'memory') loadMemories();
+var state = {
+  currentView: 'chat',
+  currentConversationId: null,
+  typewriterOn: true,
+  candidates: [],
+  reviewFilter: 'all',
+  pollingTimer: null,
+  prevCandidateCount: 0,
+  editingCardId: null
+};
+
+// ═══════════════════════════════════════════════
+// VIEW SWITCHING
+// ═══════════════════════════════════════════════
+function switchView(name) {
+  state.currentView = name;
+
+  // Update nav
+  document.querySelectorAll('.nav-item').forEach(function(el) {
+    el.classList.toggle('active', el.getAttribute('data-view') === name);
+  });
+
+  // Update view
+  document.querySelectorAll('.view').forEach(function(el) { el.classList.remove('active'); });
+  var target = document.getElementById('view-' + name);
+  if (target) target.classList.add('active');
+
+  // View-specific logic
+  if (name === 'review') loadCandidates();
+  if (name === 'library') loadLibrary();
+  if (name === 'knowledge') kbRefresh();
+  if (name === 'settings') loadSettings();
+  if (name === 'chat' && document.getElementById('chatBox').children.length === 1) {
+    // Chat is empty — placeholder already visible
+  }
 }
 
 // ═══════════════════════════════════════════════
-// Conversation management
+// TOAST NOTIFICATIONS
 // ═══════════════════════════════════════════════
+function showToast(msg, icon, duration) {
+  icon = icon || '🧠';
+  duration = duration || 4000;
+  var container = document.getElementById('toastContainer');
+  var toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = '<span class="toast-icon">'+icon+'</span> '+msg;
+  toast.addEventListener('click', function() {
+    switchView('review');
+  });
+  container.appendChild(toast);
 
+  setTimeout(function() {
+    toast.classList.add('fadeout');
+    setTimeout(function() { toast.remove(); }, 300);
+  }, duration);
+}
+
+// ═══════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════
+function escHtml(str) {
+  var d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+
+function renderMd(text) {
+  if (markedOk && purifyOk) {
+    return DOMPurify.sanitize(marked.parse(text));
+  }
+  return escHtml(text);
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  return dateStr.slice(0, 10);
+}
+
+function formatRelative(dateStr) {
+  if (!dateStr) return '';
+  var now = new Date();
+  var d = new Date(dateStr.replace(' ','T'));
+  if (isNaN(d.getTime())) return dateStr.slice(0,10);
+  var diff = (now - d) / 1000;
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff/60) + '分钟前';
+  if (diff < 86400) return Math.floor(diff/3600) + '小时前';
+  return Math.floor(diff/86400) + '天前';
+}
+
+// ═══════════════════════════════════════════════
+// CONVERSATION MANAGEMENT
+// ═══════════════════════════════════════════════
 async function loadConversations() {
   try {
     var r = await fetch('/conversations');
@@ -168,45 +957,47 @@ async function loadConversations() {
     var list = d.conversations || [];
     var el = document.getElementById('conversationList');
     if (list.length === 0) {
-      el.innerHTML = '<div style="color:#999;font-size:12px;padding:8px">暂无会话</div>';
+      el.innerHTML = '<div style="color:#bbb;font-size:12px;padding:12px 8px;text-align:center">暂无会话</div>';
       return;
     }
-    el.innerHTML = list.map(function(c){
-      var active = c.id === currentConversationId ? ' active' : '';
-      var date = (c.updated_at || '').slice(0,10);
-      return '<div class="conv-item'+active+'" onclick="openConversation('+c.id+')" ondblclick="renameConversation('+c.id+',\''+c.title.replace(/'/g,"\\'")+'\')" title="双击重命名">'
-        + '<span class="conv-title">'+c.title+'</span>'
-        + ' <span style="color:#999;font-size:11px">'+date+'</span>'
-        + '<span class="del-btn" onclick="event.stopPropagation();deleteConversation('+c.id+')">x</span>'
+    el.innerHTML = list.map(function(c) {
+      var active = c.id === state.currentConversationId ? ' active' : '';
+      return '<div class="conv-item'+active+'" onclick="openConversation('+c.id+')" ondblclick="renameConversation('+c.id+',\''+escHtml(c.title)+'\')" title="Double-click to rename">'
+        + '<span class="conv-icon">💬</span>'
+        + '<span class="conv-title">'+escHtml(c.title)+'</span>'
+        + '<span class="conv-date">'+formatRelative(c.updated_at)+'</span>'
+        + '<span class="del-btn" onclick="event.stopPropagation();deleteConversation('+c.id+')" title="Delete">&times;</span>'
         + '</div>';
     }).join('');
-  } catch(e) {
-    console.error('loadConversations failed:', e);
-  }
+  } catch(e) { console.error('loadConversations:', e); }
 }
 
 async function newConversation() {
   try {
     var r = await fetch('/conversations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:'新对话'})});
     var d = await r.json();
-    currentConversationId = d.conversation.id;
-    document.getElementById('chatBox').innerHTML = '';
+    state.currentConversationId = d.conversation.id;
+    document.getElementById('chatBox').innerHTML = '<div class="chat-empty"><div class="chat-empty-icon">💬</div><div class="chat-empty-text">新会话已创建</div></div>';
     await loadConversations();
+    switchView('chat');
   } catch(e) { console.error(e); }
 }
 
 async function openConversation(id) {
-  currentConversationId = id;
+  state.currentConversationId = id;
   var box = document.getElementById('chatBox');
   box.innerHTML = '';
   try {
     var r = await fetch('/conversations/'+id);
     var d = await r.json();
-    (d.messages || []).forEach(function(m){
-      addMsg(m.role, m.content);
-    });
+    if (!d.messages || d.messages.length === 0) {
+      box.innerHTML = '<div class="chat-empty"><div class="chat-empty-icon">💬</div><div class="chat-empty-text">暂无消息 — 说点什么吧！</div></div>';
+    } else {
+      d.messages.forEach(function(m) { appendMsg(m.role, m.content); });
+    }
   } catch(e) { console.error(e); }
   await loadConversations();
+  switchView('chat');
 }
 
 async function renameConversation(id, oldTitle) {
@@ -219,38 +1010,69 @@ async function renameConversation(id, oldTitle) {
 }
 
 async function deleteConversation(id) {
+  if (!confirm('确定删除该会话吗？')) return;
   try {
     await fetch('/conversations/'+id, {method:'DELETE'});
-    if (currentConversationId === id) {
-      currentConversationId = null;
-      document.getElementById('chatBox').innerHTML = '';
+    if (state.currentConversationId === id) {
+      state.currentConversationId = null;
+      document.getElementById('chatBox').innerHTML = '<div class="chat-empty"><div class="chat-empty-icon">💬</div><div class="chat-empty-text">请选择或新建一个会话</div></div>';
     }
     await loadConversations();
   } catch(e) { console.error(e); }
 }
 
 async function saveChatMessages(userMsg, assistantMsg) {
-  if (!currentConversationId) return;
+  if (!state.currentConversationId) return;
   try {
-    await fetch('/conversations/'+currentConversationId+'/messages', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role:'user',content:userMsg})});
-    await fetch('/conversations/'+currentConversationId+'/messages', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role:'assistant',content:assistantMsg})});
-    await loadConversations(); // refresh titles/dates
+    await fetch('/conversations/'+state.currentConversationId+'/messages', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role:'user',content:userMsg})});
+    await fetch('/conversations/'+state.currentConversationId+'/messages', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({role:'assistant',content:assistantMsg})});
+    await loadConversations();
   } catch(e) { console.error(e); }
 }
 
-function addMsg(role, text) {
+// ═══════════════════════════════════════════════
+// CHAT
+// ═══════════════════════════════════════════════
+function appendMsg(role, text) {
   var box = document.getElementById('chatBox');
-  var w = document.createElement('div'); w.className = 'msg '+role;
+  // Remove empty state if present
+  var emptyEl = box.querySelector('.chat-empty');
+  if (emptyEl) emptyEl.remove();
+
+  var w = document.createElement('div'); w.className = 'msg ' + role;
   var b = document.createElement('div'); b.className = 'bubble';
   if (role === 'user') {
     b.textContent = text;
-  } else if (markedOk && purifyOk) {
-    b.innerHTML = DOMPurify.sanitize(marked.parse(text));
   } else {
-    b.textContent = text;
+    b.innerHTML = renderMd(text);
   }
   w.appendChild(b); box.appendChild(w);
   box.scrollTop = box.scrollHeight;
+}
+
+function toggleTypewriter() {
+  state.typewriterOn = !state.typewriterOn;
+  var btn = document.getElementById('typewriterToggle');
+  btn.textContent = '打字: ' + (state.typewriterOn ? '开' : '关');
+}
+
+function typewriterRender(bubble, text) {
+  if (!state.typewriterOn) {
+    bubble.innerHTML = renderMd(text);
+    document.getElementById('chatBox').scrollTop = document.getElementById('chatBox').scrollHeight;
+    return;
+  }
+  var i = 0, speed = 15, raw = '';
+  bubble.textContent = '';
+  function tick() {
+    if (i < text.length) {
+      raw += text[i]; i++;
+      bubble.innerHTML = renderMd(raw);
+      document.getElementById('chatBox').scrollTop = document.getElementById('chatBox').scrollHeight;
+      setTimeout(tick, speed);
+    }
+  }
+  tick();
 }
 
 async function sendChat() {
@@ -258,23 +1080,27 @@ async function sendChat() {
   var msg = input.value.trim();
   if (!msg) return;
   input.value = '';
-  addMsg('user', msg);
-  document.getElementById('sendBtn').disabled = true;
-  document.getElementById('chatLoading').classList.add('show');
 
-  // Auto-create conversation if none active
-  if (!currentConversationId) {
+  appendMsg('user', msg);
+  document.getElementById('sendBtn').disabled = true;
+  var statusEl = document.getElementById('chatStatus');
+  statusEl.innerHTML = '<span class="dot thinking"></span> 思考中...';
+
+  // Auto-create conversation if needed
+  if (!state.currentConversationId) {
     try {
-      var cr = await fetch('/conversations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:msg.slice(0,30)})});
+      var cr = await fetch('/conversations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:msg.slice(0,40)})});
       var cd = await cr.json();
-      currentConversationId = cd.conversation.id;
+      state.currentConversationId = cd.conversation.id;
+      await loadConversations();
     } catch(e) {}
   }
 
-  var convId = currentConversationId;
-
-  // 先创建一个空的 assistant 气泡
+  var convId = state.currentConversationId;
   var box = document.getElementById('chatBox');
+  var emptyEl = box.querySelector('.chat-empty');
+  if (emptyEl) emptyEl.remove();
+
   var wrapper = document.createElement('div'); wrapper.className = 'msg assistant';
   var bubble = document.createElement('div'); bubble.className = 'bubble'; bubble.textContent = '';
   wrapper.appendChild(bubble); box.appendChild(wrapper);
@@ -287,15 +1113,15 @@ async function sendChat() {
     var buffer = '';
 
     while (true) {
-      var {done, value} = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, {stream: true});
-
+      var result = await reader.read();
+      if (result.done) break;
+      buffer += decoder.decode(result.value, {stream: true});
       var lines = buffer.split('\n');
-      buffer = lines.pop() || '';  // 未完成的行留在 buffer
+      buffer = lines.pop() || '';
 
-      for (var line of lines) {
-        if (!line.startsWith('data: ')) continue;
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (line.indexOf('data: ') !== 0) continue;
         var payload = line.slice(6);
         try {
           var env = JSON.parse(payload);
@@ -307,142 +1133,691 @@ async function sendChat() {
             finalContent = evtData.content || '';
             typewriterRender(bubble, finalContent);
           } else if (evt === 'stage') {
-            var loading = document.getElementById('chatLoading');
-            loading.textContent = evtData.stage || '处理中';
+            statusEl.innerHTML = '<span class="dot thinking"></span> ' + escHtml(evtData.stage || '处理中...');
           }
-          // meta / done events don't need frontend handling
         } catch(e) {}
       }
       box.scrollTop = box.scrollHeight;
     }
   } catch(e) {
-    bubble.textContent = '连接失败: '+e.message;
+    bubble.textContent = '连接失败: ' + e.message;
   } finally {
     document.getElementById('sendBtn').disabled = false;
-    document.getElementById('chatLoading').classList.remove('show');
+    statusEl.innerHTML = '';
     if (finalContent && convId) {
       saveChatMessages(msg, finalContent);
     }
   }
 }
 
-function toggleTypewriter() {
-  typewriterOn = !typewriterOn;
-  var btn = document.getElementById('typewriterToggle');
-  btn.textContent = '打字: ' + (typewriterOn ? '开' : '关');
+// ═══════════════════════════════════════════════
+// MEMORY CANDIDATES — REVIEW
+// ═══════════════════════════════════════════════
+function getConfLevel(conf) {
+  if (conf >= 0.85) return 'high';
+  if (conf >= 0.6) return 'mid';
+  return 'low';
 }
 
-function typewriterRender(bubble, text) {
-  if (!typewriterOn) {
-    // Instant render
-    if (markedOk && purifyOk) {
-      bubble.innerHTML = DOMPurify.sanitize(marked.parse(text));
-    } else {
-      bubble.textContent = text;
+function getConfLabel(conf) {
+  var pct = (conf * 100).toFixed(0);
+  if (conf >= 0.85) return '高可信 · ' + pct + '%';
+  if (conf >= 0.6) return '中可信 · ' + pct + '%';
+  return '低可信 · ' + pct + '%';
+}
+
+async function loadCandidates() {
+  try {
+    var r = await fetch('/memory/candidates?status=pending');
+    var d = await r.json();
+    state.candidates = d.candidates || [];
+    updateMemoryBadge();
+    renderReviewList();
+  } catch(e) { console.error('loadCandidates:', e); }
+}
+
+function updateMemoryBadge() {
+  var count = state.candidates.length;
+  var badgeCount = document.getElementById('badgeCount');
+  var navBadge = document.getElementById('navBadge');
+  var prev = state.prevCandidateCount;
+
+  badgeCount.textContent = count;
+  navBadge.textContent = count;
+  navBadge.style.display = count > 0 ? 'inline-block' : 'none';
+
+  if (count > prev) {
+    // New candidates arrived — pulse the badge
+    var badge = document.getElementById('memoryBadge');
+    badge.classList.remove('pulse');
+    void badge.offsetWidth; // trigger reflow
+    badge.classList.add('pulse');
+
+    if (prev > 0 && state.currentView !== 'review') {
+      showToast('有 ' + (count - prev) + ' 条新记忆待审核', '🧠');
     }
-    var box = document.getElementById('chatBox');
-    box.scrollTop = box.scrollHeight;
+  }
+  state.prevCandidateCount = count;
+}
+
+function getFilteredCandidates() {
+  if (state.reviewFilter === 'all') return state.candidates;
+  return state.candidates.filter(function(c) {
+    var level = getConfLevel(c.confidence);
+    return level === state.reviewFilter;
+  });
+}
+
+function setReviewFilter(filter, el) {
+  state.reviewFilter = filter;
+  document.querySelectorAll('.review-toolbar .filter-btn').forEach(function(b) { b.classList.remove('active'); });
+  if (el) el.classList.add('active');
+  renderReviewList();
+}
+
+function renderReviewList() {
+  var list = getFilteredCandidates();
+  var listEl = document.getElementById('reviewList');
+  var emptyEl = document.getElementById('reviewEmpty');
+  var countEl = document.getElementById('reviewCount');
+
+  countEl.textContent = '共 ' + list.length + ' 条候选';
+
+  if (list.length === 0) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = 'block';
     return;
   }
+  emptyEl.style.display = 'none';
 
-  var i = 0;
-  var speed = 15;
-  var raw = '';
-  bubble.textContent = '';
+  listEl.innerHTML = list.map(function(c) {
+    var confLevel = getConfLevel(c.confidence);
+    var cls = 'memory-card ' + confLevel + '-confidence';
+    if (state.editingCardId === c.id) cls += ' editing';
 
-  function tick() {
-    if (i < text.length) {
-      raw += text[i];
-      i++;
-      if (markedOk && purifyOk) {
-        bubble.innerHTML = DOMPurify.sanitize(marked.parse(raw));
-      } else {
-        bubble.textContent = raw;
-      }
-      var box = document.getElementById('chatBox');
-      box.scrollTop = box.scrollHeight;
-      setTimeout(tick, speed);
+    var confBarCls = confLevel === 'high' ? 'conf-high' : (confLevel === 'mid' ? 'conf-mid' : 'conf-low');
+    var catCls = (c.category || '').toLowerCase().replace(/\s+/g,'_');
+    var msgIds = c.source_message_ids || '[]';
+    var convId = c.source_conversation_id || 0;
+
+    return '<div class="'+cls+'" id="card-'+c.id+'">'
+      + '<div class="card-header">'
+        + '<div class="card-key">' + escHtml(c.key) + ' <span class="card-category '+catCls+'">'+escHtml(c.category||'general')+'</span></div>'
+        + '<div style="text-align:right;flex-shrink:0;margin-left:12px">'
+          + '<div class="conf-label"><span>'+getConfLabel(c.confidence)+'</span></div>'
+          + '<div class="conf-bar"><div class="conf-fill '+confBarCls+'" style="width:'+(c.confidence*100)+'%"></div></div>'
+        + '</div>'
+      + '</div>'
+      + '<div class="card-value">' + escHtml(c.value) + '</div>'
+      + (c.evidence ? '<div class="evidence-toggle" onclick="toggleEvidence(\''+c.id+'\','+convId+',\''+escHtml(msgIds)+'\')">▶ ' + escHtml((c.evidence||'').slice(0,100)) + '</div><div class="evidence-body" id="evidence-'+c.id+'"></div>' : '')
+      + (c.reason ? '<div style="font-size:11px;color:#999;margin-top:4px">理由: ' + escHtml(c.reason) + '</div>' : '')
+      + '<div class="edit-form" id="editForm-'+c.id+'">'
+        + '<label>键名</label><input id="editKey-'+c.id+'" value="'+escHtml(c.key)+'">'
+        + '<label>内容</label><input id="editValue-'+c.id+'" value="'+escHtml(c.value)+'">'
+        + '<label>分类</label><select id="editCat-'+c.id+'"><option value="preference"'+((c.category==='preference')?' selected':'')+'>偏好</option><option value="tech_stack"'+((c.category==='tech_stack')?' selected':'')+'>技术栈</option><option value="project"'+((c.category==='project')?' selected':'')+'>项目</option><option value="workflow"'+((c.category==='workflow')?' selected':'')+'>工作流</option><option value="constraint"'+((c.category==='constraint')?' selected':'')+'>约束</option><option value="fact"'+((c.category==='fact')?' selected':'')+'>事实</option></select>'
+        + '<div class="edit-form-actions">'
+          + '<button class="btn btn-sm btn-accept" onclick="acceptEdited('+c.id+')">✓ 接受修改</button>'
+          + '<button class="btn btn-sm btn-ghost" onclick="cancelEdit('+c.id+')">取消</button>'
+        + '</div>'
+      + '</div>'
+      + '<div class="card-actions">'
+        + '<button class="btn btn-sm btn-accept" onclick="acceptCandidate('+c.id+')">✓ 接受</button>'
+        + '<button class="btn btn-sm btn-edit" onclick="startEdit('+c.id+')">✏ 编辑</button>'
+        + '<button class="btn btn-sm btn-reject" onclick="rejectCandidate('+c.id+')">✕ 拒绝</button>'
+        + (convId ? '<span style="margin-left:auto;font-size:11px;color:#bbb">来源: 会话 #'+convId+'</span>' : '')
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function toggleEvidence(candidateId, convId, msgIds) {
+  var body = document.getElementById('evidence-'+candidateId);
+  if (body.classList.contains('open')) {
+    body.classList.remove('open');
+    body.previousElementSibling.textContent = body.previousElementSibling.textContent.replace('▼','▶');
+    return;
+  }
+  body.classList.add('open');
+  body.previousElementSibling.textContent = body.previousElementSibling.textContent.replace('▶','▼');
+  if (body.textContent) return; // already loaded
+
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    var ids = JSON.parse(msgIds);
+    if (!Array.isArray(ids) || ids.length === 0) {
+      body.textContent = '无源消息可用。';
+      return;
     }
-  }
-  tick();
-}
-
-// Load conversations on page load
-loadConversations();
-
-async function ingestLocal() {
-  var dir = document.getElementById('localDir').value.trim() || 'knowledge';
-  document.getElementById('localLoading').classList.add('show');
-  document.getElementById('localResult').className = 'result';
-  try {
-    var r = await fetch('/ingest/local', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({directory:dir})});
-    var d = await r.json();
-    document.getElementById('localResult').textContent = d.message || d.error || JSON.stringify(d);
-    document.getElementById('localResult').className = 'result show';
+    fetch('/messages/batch?ids='+ids.join(','))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var messages = d.messages || [];
+        if (messages.length === 0) {
+          body.textContent = '未找到源消息。';
+          return;
+        }
+        body.innerHTML = messages.map(function(m) {
+          return '<div class="evidence-msg"><div class="role">'+escHtml(m.role)+'</div><div>'+escHtml(m.content.slice(0,300))+'</div></div>';
+        }).join('');
+      })
+      .catch(function(e) {
+        body.textContent = '加载证据失败。';
+      });
   } catch(e) {
-    document.getElementById('localResult').textContent = '错误: '+e.message;
-    document.getElementById('localResult').className = 'result show error';
-  } finally {
-    document.getElementById('localLoading').classList.remove('show');
+    body.textContent = '无效的源数据。';
   }
 }
 
-async function searchKb() {
-  var q = document.getElementById('kbQuery').value.trim();
-  if (!q) return;
-  document.getElementById('kbLoading').classList.add('show');
-  document.getElementById('kbResult').className = 'result';
-  try {
-    var r = await fetch('/knowledge/search', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({query:q,top_k:5})});
-    var d = await r.json();
-    document.getElementById('kbResult').textContent = d.has_results ? d.context : '未找到相关内容';
-    document.getElementById('kbResult').className = 'result show';
-  } catch(e) {
-    document.getElementById('kbResult').textContent = '错误: '+e.message;
-    document.getElementById('kbResult').className = 'result show error';
-  } finally {
-    document.getElementById('kbLoading').classList.remove('show');
-  }
+function startEdit(id) {
+  state.editingCardId = id;
+  var card = document.getElementById('card-'+id);
+  if (card) card.classList.add('editing');
+  var form = document.getElementById('editForm-'+id);
+  if (form) form.classList.add('open');
 }
 
-async function loadMemories(cat) {
-  document.getElementById('memLoading').classList.add('show');
+function cancelEdit(id) {
+  state.editingCardId = null;
+  var card = document.getElementById('card-'+id);
+  if (card) card.classList.remove('editing');
+  var form = document.getElementById('editForm-'+id);
+  if (form) form.classList.remove('open');
+}
+
+async function acceptCandidate(id) {
+  var card = document.getElementById('card-'+id);
+  if (card) card.classList.add('fading');
+  setTimeout(async function() {
+    try {
+      await fetch('/memory/candidates/'+id+'/accept', {method:'POST'});
+    } catch(e) { alert('操作失败: '+e.message); }
+    loadCandidates();
+    if (state.currentView === 'library') loadLibrary();
+  }, 250);
+}
+
+async function acceptEdited(id) {
+  var newKey = document.getElementById('editKey-'+id).value.trim();
+  var newValue = document.getElementById('editValue-'+id).value.trim();
+  var newCat = document.getElementById('editCat-'+id).value;
+  if (!newKey || !newValue) { alert('键名和内容不能为空。'); return; }
+
+  state.editingCardId = null;
+  var card = document.getElementById('card-'+id);
+  if (card) { card.classList.remove('editing'); card.classList.add('fading'); }
+  var form = document.getElementById('editForm-'+id);
+  if (form) form.classList.remove('open');
+
+  setTimeout(async function() {
+    try {
+      await fetch('/memory/candidates/'+id+'/accept', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({key:newKey, value:newValue, category:newCat})
+      });
+    } catch(e) { alert('Failed: '+e.message); }
+    loadCandidates();
+    if (state.currentView === 'library') loadLibrary();
+  }, 250);
+}
+
+async function rejectCandidate(id) {
+  var card = document.getElementById('card-'+id);
+  if (card) card.classList.add('fading');
+  setTimeout(async function() {
+    try {
+      await fetch('/memory/candidates/'+id+'/reject', {method:'POST'});
+    } catch(e) { alert('操作失败: '+e.message); }
+    loadCandidates();
+  }, 250);
+}
+
+async function acceptAllCandidates() {
+  var list = getFilteredCandidates();
+  if (list.length === 0) return;
+  if (!confirm('确定接受全部 ' + list.length + ' 条候选吗？')) return;
+  for (var i = 0; i < list.length; i++) {
+    try { await fetch('/memory/candidates/'+list[i].id+'/accept', {method:'POST'}); } catch(e) {}
+  }
+  loadCandidates();
+}
+
+async function rejectAllCandidates() {
+  var list = getFilteredCandidates();
+  if (list.length === 0) return;
+  if (!confirm('确定拒绝全部 ' + list.length + ' 条候选吗？')) return;
+  for (var i = 0; i < list.length; i++) {
+    try { await fetch('/memory/candidates/'+list[i].id+'/reject', {method:'POST'}); } catch(e) {}
+  }
+  loadCandidates();
+}
+
+// ═══════════════════════════════════════════════
+// MEMORY LIBRARY
+// ═══════════════════════════════════════════════
+async function loadLibrary() {
+  var search = document.getElementById('librarySearch').value.trim().toLowerCase();
+  var cat = document.getElementById('libraryCategory').value;
+  var source = document.getElementById('librarySource').value;
+
+  var url = cat ? '/memory/list?category='+encodeURIComponent(cat) : '/memory/list';
+
   try {
-    var url = cat ? '/memory/list?category='+cat : '/memory/list';
     var r = await fetch(url);
     var d = await r.json();
-    var el = document.getElementById('memoryList');
-    if (!d.memories || d.memories.length === 0) {
-      el.innerHTML = '<div class="mem-item" style="color:#999">暂无记忆</div>';
-    } else {
-      el.innerHTML = d.memories.map(function(m){return '<div class="mem-item"><span class="mem-key">'+m.key+'</span>: '+m.value+'<span class="mem-cat">'+m.category+'</span> <button class="btn-sm" onclick="deleteMem(\''+m.key+'\')" style="float:right;padding:2px 8px;font-size:11px;background:#c0392b">删除</button></div>';}).join('');
+    var memories = d.memories || [];
+
+    // Client-side filtering
+    if (search) {
+      memories = memories.filter(function(m) {
+        return (m.key||'').toLowerCase().indexOf(search) !== -1 || (m.value||'').toLowerCase().indexOf(search) !== -1;
+      });
     }
-  } catch(e) {
-    document.getElementById('memoryList').innerHTML = '<div class="mem-item" style="color:#c0392b">加载失败</div>';
-  } finally {
-    document.getElementById('memLoading').classList.remove('show');
-  }
+    if (source) {
+      memories = memories.filter(function(m) { return m.source === source; });
+    }
+
+    var listEl = document.getElementById('libraryList');
+    var emptyEl = document.getElementById('libraryEmpty');
+
+    if (memories.length === 0) {
+      listEl.innerHTML = '';
+      emptyEl.style.display = 'block';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    listEl.innerHTML = memories.map(function(m) {
+      var sourceCls = 'tag-source-' + (m.source || 'explicit');
+      var confLevel = getConfLevel(m.confidence || 1.0);
+      return '<div class="memory-item">'
+        + '<div class="memory-item-left">'
+          + '<div class="memory-item-key">' + escHtml(m.key) + (m.category ? ' <span class="card-category '+escHtml(m.category)+'">'+escHtml(m.category)+'</span>' : '') + '</div>'
+          + '<div class="memory-item-value">' + escHtml(m.value) + '</div>'
+          + '<div class="memory-item-meta">'
+            + '<span class="'+sourceCls+'">' + (m.source==='passive'?'被动提取':(m.source==='explicit'?'手动记录':escHtml(m.source||'手动记录'))) + '</span>'
+            + (m.seen_count ? '<span>出现 ' + m.seen_count + ' 次</span>' : '')
+            + (m.last_seen_at ? '<span>' + formatRelative(m.last_seen_at) + '</span>' : '')
+            + (m.confidence !== undefined && m.confidence < 1 ? '<span>可信: '+(m.confidence*100).toFixed(0)+'%</span>' : '')
+          + '</div>'
+        + '</div>'
+        + '<div class="memory-item-actions">'
+          + '<button class="btn btn-xs btn-ghost" onclick="deleteMem(\''+escHtml(m.key)+'\')" title="Delete">&times;</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  } catch(e) { console.error('loadLibrary:', e); }
 }
 
 async function deleteMem(key) {
-  if (!confirm('确定删除 "'+key+'" 吗？')) return;
+  if (!confirm('确定删除 "' + key + '" 吗？')) return;
   try {
     await fetch('/memory/delete/'+encodeURIComponent(key), {method:'DELETE'});
-    loadMemories('');
-  } catch(e) {
-    alert('删除失败: '+e.message);
-  }
+    loadLibrary();
+  } catch(e) { alert('删除失败: '+e.message); }
 }
 
 async function deleteAllMem() {
-  if (!confirm('确定清空所有记忆吗？')) return;
+  if (!confirm('确定永久删除全部记忆吗？此操作不可撤销。')) return;
   try {
     await fetch('/memory/delete-all', {method:'DELETE'});
-    loadMemories('');
-  } catch(e) {
-    alert('清空失败: '+e.message);
-  }
+    loadLibrary();
+  } catch(e) { alert('Failed: '+e.message); }
 }
+
+// ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+// KNOWLEDGE BASE (v0.5 — async upload + per-file progress + chunk viewer)
+// ═══════════════════════════════════════════════
+
+var kbSelFiles = [];  // {file, taskId, total, done, status, notified}
+var kbPollTimer = null;
+
+function kbFmt(bytes) { return bytes<1024?bytes+' B':bytes<1048576?(bytes/1024).toFixed(1)+' KB':(bytes/1048576).toFixed(2)+' MB'; }
+
+function kbHandleFiles(fl) {
+  for (var i=0;i<(fl||[]).length;i++) {
+    var f=fl[i],n=f.name.toLowerCase();
+    if (!n.endsWith('.md')&&!n.endsWith('.txt')) continue;
+    if (kbSelFiles.some(function(x){return x.file.name===f.name;})) continue;
+    kbSelFiles.push({file:f, taskId:null, total:0, done:0, status:'idle', notified:false});
+  }
+  document.getElementById('kbFileInput').value='';
+  kbRenderSel();
+}
+function kbRemoveSel(idx) { kbSelFiles.splice(idx,1); kbRenderSel(); }
+function kbClearSelection() { kbSelFiles=[]; kbRenderSel(); if(kbPollTimer) clearInterval(kbPollTimer); }
+
+function kbRenderSel() {
+  var n=kbSelFiles.length, s=document.getElementById('kbStartBtn'), c=document.getElementById('kbClearBtn');
+  s.disabled=n===0; c.disabled=n===0;
+  document.getElementById('kbSelCount').textContent=n+' 个文件';
+  var list=document.getElementById('kbSelList');
+  if(n===0){list.className='kb-file-list empty';list.textContent='暂未选择文件';return;}
+  list.className='kb-file-list';
+  list.innerHTML=kbSelFiles.map(function(x,i){
+    var pct=x.total>0?Math.round(x.done/x.total*100):0;
+    var cls=x.status==='done'?' done':(x.status==='error'?' failed':'');
+    var bar=x.total>0?'<div class="kb-file-bar-wrap"><div class="kb-file-bar-fill" style="width:'+pct+'%"></div></div>':'';
+    return '<div class="kb-file-item'+cls+'"><span class="kb-file-name">📄 '+escHtml(x.file.name)+'</span><span class="kb-file-meta">'+(x.total>0?x.done+'/'+x.total+' ('+pct+'%)':kbFmt(x.file.size))+'</span><button class="kb-file-del" onclick="kbRemoveSel('+i+')">移除</button>'+bar+'</div>';
+  }).join('');
+}
+
+function kbPollProgress() {
+  var active=false;
+  for(var i=0;i<kbSelFiles.length;i++){
+    var x=kbSelFiles[i];
+    if(!x.taskId||x.status==='done'||x.status==='error') continue;
+    active=true;
+    (function(fileEntry){
+      fetch('/knowledge/progress/'+fileEntry.taskId).then(function(r){return r.json();}).then(function(d){
+        fileEntry.done=d.done||0; fileEntry.total=d.total||fileEntry.total;
+        if(d.status==='done'){
+          fileEntry.status='done';
+          if(!fileEntry.notified){fileEntry.notified=true;showToast('✅ '+fileEntry.file.name+' 导入完成');kbRefresh();}
+        }else if(d.status==='error'){
+          fileEntry.status='error';
+          if(!fileEntry.notified){fileEntry.notified=true;showToast('❌ '+fileEntry.file.name+': '+d.message,'');}
+        }
+        kbRenderSel();
+      }).catch(function(){});
+    })(x);
+  }
+  if(!active&&kbPollTimer){clearInterval(kbPollTimer);kbPollTimer=null;}
+}
+
+async function kbStartImport() {
+  if(kbSelFiles.length===0) return;
+  document.getElementById('kbStartBtn').disabled=true;
+  for(var i=0;i<kbSelFiles.length;i++){
+    var x=kbSelFiles[i]; if(x.taskId) continue;
+    var fd=new FormData(); fd.append('file',x.file);
+    try{
+      var r=await fetch('/knowledge/upload',{method:'POST',body:fd}), d=await r.json();
+      if(!r.ok) throw new Error(d.message||'失败');
+      x.taskId=d.task_id; x.total=d.total_chunks; x.done=0; x.status='processing';
+      kbRenderSel();
+    }catch(e){x.status='error'; kbRenderSel(); showToast('❌ '+x.file.name+': '+e.message,'');}
+  }
+  if(!kbPollTimer) kbPollTimer=setInterval(kbPollProgress,800);
+}
+
+async function kbRefresh() {
+  try{
+    var r=await fetch('/knowledge/stats'),d=await r.json();
+    if(!r.ok) throw new Error(d.message||'获取失败');
+    var files=d.files||[],list=document.getElementById('kbImpList');
+    if(files.length===0){list.className='kb-file-list empty';list.textContent='暂无已导入文档';return;}
+    list.className='kb-file-list';
+    list.innerHTML=files.map(function(f){
+      return '<div class="kb-imported-item" ondblclick="kbOpenChunks(\''+escHtml(f.name)+'\')"><span class="kb-file-name">📄 '+escHtml(f.name)+'</span><span class="kb-file-meta">'+f.chunks+' chunks</span><button class="kb-file-del" onclick="event.stopPropagation();kbDeleteFile(\''+escHtml(f.name)+'\')">🗑 删除</button></div>';
+    }).join('');
+  }catch(e){showToast(e.message,'');}
+}
+async function kbDeleteFile(fname){if(!confirm('确定删除「'+fname+'」吗？'))return;try{await fetch('/knowledge/chunks/'+encodeURIComponent(fname),{method:'DELETE'});showToast('已删除');kbRefresh();}catch(e){showToast(e.message,'');}}
+async function kbClearAll(){if(!confirm('确定清空知识库？不可撤销。'))return;try{await fetch('/knowledge/collection',{method:'DELETE'});showToast('已清空');kbRefresh();}catch(e){showToast(e.message,'');}}
+function kbToggleSearch(){document.getElementById('kbSearchPanel').classList.toggle('hidden');}
+var kbSearchQuery='';
+
+async function kbSearch(){
+  var q=document.getElementById('kbSearchInput').value.trim();if(!q)return;
+  var el=document.getElementById('kbSearchResult');
+  el.className='kb-search-result';el.textContent='搜索中...';
+  try{
+    var r=await fetch('/knowledge/search/chunks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,top_k:40})});
+    var d=await r.json();
+    if(!d.chunks||d.chunks.length===0){el.textContent='未找到相关内容。';el.className='kb-search-result empty';return;}
+    kbSearchQuery=q;
+    kbSearchPage=1;
+    kbSearchTotal=Math.ceil(d.chunks.length/15);
+    kbSearchChunks=d.chunks;
+    kbRenderSearchPage();
+  }catch(e){el.textContent='错误: '+e.message;el.className='kb-search-result empty';}
+}
+
+var kbSearchChunks=[], kbSearchPage=1, kbSearchTotal=0;
+function kbRenderSearchPage(){
+  var start=(kbSearchPage-1)*15, end=start+15, page=kbSearchChunks.slice(start,end);
+  var pages=[], pager=document.getElementById('kbSearchPager'), body=document.getElementById('kbSearchBody');
+  for(var i=1;i<=kbSearchTotal;i++) pages.push('<button class="'+(i===kbSearchPage?'active':'')+'" onclick="kbSearchPage='+i+';kbRenderSearchPage()" '+(i===kbSearchPage?'disabled':'')+'>'+i+'</button>');
+  if(pager) pager.innerHTML='<span>搜索结果: '+kbSearchChunks.length+' 块，第 '+kbSearchPage+'/'+kbSearchTotal+' 页</span>'+pages.join('');
+  if(body) body.innerHTML=page.map(function(c){
+    return '<div class="kb-chunk-card"><div class="chunk-id">#'+escHtml(c.id)+' | '+escHtml(c.source)+'</div>'+(c.header?'<div class="chunk-header">'+escHtml(c.header)+'</div>':'')+'<div>'+escHtml(c.text.slice(0,400))+(c.text.length>400?'...':'')+'</div><div class="kb-chunk-actions"><button class="btn btn-xs btn-ghost" onclick="kbEditSearchChunk(\''+escHtml(c.id)+'\')">编辑</button><button class="btn btn-xs btn-ghost" style="color:var(--danger)" onclick="kbDelSearchChunk(\''+escHtml(c.id)+'\')">删除</button></div><div class="kb-chunk-edit-area" id="editsearch-'+escHtml(c.id)+'"><textarea id="tas-'+escHtml(c.id)+'">'+escHtml(c.text)+'</textarea><div style="margin-top:4px"><button class="btn btn-xs btn-success" onclick="kbSaveSearchChunk(\''+escHtml(c.id)+'\')">保存</button><button class="btn btn-xs btn-ghost" onclick="kbCancelSearchEdit(\''+escHtml(c.id)+'\')">取消</button></div></div></div>';
+  }).join('');
+}
+function kbEditSearchChunk(id){document.getElementById('editsearch-'+id).classList.add('open');}
+function kbCancelSearchEdit(id){document.getElementById('editsearch-'+id).classList.remove('open');}
+async function kbSaveSearchChunk(id){
+  var ta=document.getElementById('tas-'+id);var text=ta.value.trim();if(!text)return;
+  ta.disabled=true;var btn=document.querySelector('#editsearch-'+id+' .btn-success');if(btn){btn.disabled=true;btn.textContent='保存中...';}
+  try{await fetch('/knowledge/chunk/'+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})});
+    document.getElementById('editsearch-'+id).classList.remove('open');
+    // 直接更新搜索结果 DOM 中的文本
+    var card=document.getElementById('editsearch-'+id).closest('.kb-chunk-card').querySelector('div:nth-child(3)');
+    if(card) card.textContent=text.length>400?text.slice(0,400)+'...':text;
+    showToast('已保存');
+  }catch(e){showToast('保存失败','');ta.disabled=false;if(btn){btn.disabled=false;btn.textContent='保存';}}
+}
+async function kbDelSearchChunk(id){
+  if(!confirm('删除？'))return;
+  try{await fetch('/knowledge/chunk/'+encodeURIComponent(id),{method:'DELETE'});showToast('已删除');kbSearch();kbRefresh();}catch(e){showToast('删除失败','');}
+}
+
+// Chunk viewer
+var kbViewFile='', kbViewPage=1, kbViewTotal=0;
+function kbOpenChunks(fname){kbViewFile=fname;kbViewPage=1;kbLoadChunks();document.getElementById('kbModal').classList.remove('hidden');document.getElementById('kbModalTitle').textContent='📄 '+fname;}
+function kbCloseModal(){document.getElementById('kbModal').classList.add('hidden');}
+async function kbLoadChunks(){
+  try{
+    var r=await fetch('/knowledge/chunks/'+encodeURIComponent(kbViewFile)+'?page='+kbViewPage+'&page_size=15'),d=await r.json();
+    kbViewTotal=Math.ceil(d.total/15);
+    var pages=[],pager=document.getElementById('kbModalPager'),body=document.getElementById('kbModalBody');
+    for(var i=1;i<=kbViewTotal;i++) pages.push('<button class="'+(i===kbViewPage?'active':'')+'" onclick="kbViewPage='+i+';kbLoadChunks()" '+(i===kbViewPage?'disabled':'')+'>'+i+'</button>');
+    pager.innerHTML='<span>第 '+kbViewPage+'/'+kbViewTotal+' 页，共 '+d.total+' 块</span>'+pages.join('');
+    body.innerHTML=(d.chunks||[]).map(function(c){
+      var hid=c.header?'<div class="chunk-header">'+escHtml(c.header)+'</div>':'';
+      return '<div class="kb-chunk-card"><div class="chunk-id">#'+escHtml(c.id)+'</div>'+hid+'<div>'+escHtml(c.text.slice(0,300))+(c.text.length>300?'...':'')+'</div><div class="kb-chunk-actions"><button class="btn btn-xs btn-ghost" onclick="kbEditChunk(\''+escHtml(c.id)+'\')">✏ 编辑</button><button class="btn btn-xs btn-ghost" style="color:var(--danger)" onclick="kbDelChunk(\''+escHtml(c.id)+'\')">🗑 删除</button></div><div class="kb-chunk-edit-area" id="edit-'+escHtml(c.id)+'"><textarea id="ta-'+escHtml(c.id)+'">'+escHtml(c.text)+'</textarea><div style="margin-top:4px"><button class="btn btn-xs btn-success" onclick="kbSaveChunk(\''+escHtml(c.id)+'\')">保存</button><button class="btn btn-xs btn-ghost" onclick="kbCancelEdit(\''+escHtml(c.id)+'\')">取消</button></div></div></div>';
+    }).join('');
+  }catch(e){showToast('加载失败: '+e.message,'');}
+}
+function kbEditChunk(id){document.getElementById('edit-'+id).classList.add('open');}
+function kbCancelEdit(id){document.getElementById('edit-'+id).classList.remove('open');}
+async function kbSaveChunk(id){
+  var ta=document.getElementById('ta-'+id);var text=ta.value.trim();if(!text)return;
+  ta.disabled=true;var btn=document.querySelector('#edit-'+id+' .btn-success');if(btn){btn.disabled=true;btn.textContent='保存中...';}
+  try{await fetch('/knowledge/chunk/'+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})});
+    document.getElementById('edit-'+id).classList.remove('open');
+    // 直接更新 DOM 中显示的文本，不重新加载整个页面
+    var card=document.getElementById('edit-'+id).parentElement.querySelector('.kb-chunk-card div:not(.chunk-id):not(.chunk-header):not(.kb-chunk-actions)');
+    if(!card){
+      var cards=document.getElementById('edit-'+id).closest('.kb-chunk-card').children;
+      for(var i=0;i<cards.length;i++){
+        if(cards[i].className!=='chunk-id'&&cards[i].className!=='chunk-header'&&cards[i].className!=='kb-chunk-actions'&&cards[i].className.indexOf('kb-chunk-edit')===-1){card=cards[i];break;}
+      }
+    }
+    if(card) card.textContent=text.length>300?text.slice(0,300)+'...':text;
+    showToast('已保存');
+  }catch(e){showToast('保存失败','');ta.disabled=false;if(btn){btn.disabled=false;btn.textContent='保存';}}
+}
+async function kbDelChunk(id){
+  if(!confirm('删除这个文本块？'))return;
+  try{await fetch('/knowledge/chunk/'+encodeURIComponent(id),{method:'DELETE'});showToast('已删除');kbLoadChunks();kbRefresh();}catch(e){showToast('删除失败','');}
+}
+
+// ═══════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════
+
+var SET_PROVIDERS = [
+  {id:'ollama', name:'Ollama', icon:'🦙', desc:'本地运行，免费', model:'qwen2.5:7b', url:'http://127.0.0.1:11434', needKey:false, badge:'本地', badgeClass:'local'},
+  {id:'deepseek', name:'DeepSeek', icon:'🔮', desc:'云端，中文强，低价', model:'deepseek-chat', url:'https://api.deepseek.com', needKey:true, badge:'云端', badgeClass:'cloud'},
+  {id:'moonshot', name:'Moonshot', icon:'🌙', desc:'云端，128K 长上下文', model:'moonshot-v1-8k', url:'https://api.moonshot.cn', needKey:true, badge:'云端', badgeClass:'cloud'},
+];
+var setCurProvider = 'ollama';
+
+function loadSettings() {
+  fetch('/settings/llm').then(function(r){return r.json();}).then(function(d){
+    setCurProvider = d.provider || 'ollama';
+    document.getElementById('setModel').value = d.model || '';
+    document.getElementById('setBaseUrl').value = d.base_url || '';
+    document.getElementById('setApiKey').value = '';
+    document.getElementById('setKeyStatus').textContent = d.has_key ? '(已配置)' : '(未配置)';
+    document.getElementById('setKeyWrap').style.display = (SET_PROVIDERS.find(function(p){return p.id===setCurProvider})||{needKey:true}).needKey ? 'block' : 'none';
+    document.getElementById('setDetailCard').style.display = 'block';
+    document.getElementById('setDetailTitle').textContent = '配置详情';
+    renderSetCards();
+  }).catch(function(e){});
+}
+
+function renderSetCards() {
+  var html = SET_PROVIDERS.map(function(p){
+    var active = p.id === setCurProvider ? ' active' : '';
+    var mark = p.id === setCurProvider ? ' ✅ 当前使用' : '';
+    return '<div class="set-card'+active+'" onclick="selectProvider(\''+p.id+'\')"><div class="set-card-icon">'+p.icon+'</div><div class="set-card-name">'+p.name+mark+'</div><div class="set-card-desc">'+p.desc+'</div><span class="set-card-badge '+p.badgeClass+'">'+p.badge+'</span></div>';
+  }).join('');
+  html += '<div class="set-card" onclick="addCustomProvider()" style="border-style:dashed;border-color:#d1d5db"><div class="set-card-icon">➕</div><div class="set-card-name">新增</div><div class="set-card-desc">自定义提供商</div></div>';
+  document.getElementById('setCards').innerHTML = html;
+  // 标注当前活跃
+  var cur = SET_PROVIDERS.find(function(p){return p.id===setCurProvider;});
+  document.getElementById('setActiveLabel').textContent = cur ? '— 当前: '+cur.name : '';
+}
+
+function selectProvider(id) {
+  setCurProvider = id;
+  var p = SET_PROVIDERS.find(function(x){return x.id===id;}) || {};
+  document.getElementById('setModel').value = p.model || '';
+  document.getElementById('setBaseUrl').value = p.url || '';
+  document.getElementById('setApiKey').value = '';
+  document.getElementById('setKeyStatus').textContent = '';
+  document.getElementById('setKeyWrap').style.display = p.needKey ? 'block' : 'none';
+  document.getElementById('setDetailCard').style.display = 'block';
+  document.getElementById('setDetailTitle').textContent = '当前: ' + (p.name || id);
+  renderSetCards();
+}
+
+function addCustomProvider() {
+  var name = prompt('输入提供商名称（如 OpenAI / Groq）');
+  if (!name) return;
+  var id = name.toLowerCase().replace(/\s+/g,'_');
+  var model = prompt('输入默认模型名（如 gpt-4o）');
+  if (!model) return;
+  var url = prompt('输入 API 地址（如 https://api.openai.com）');
+  if (!url) return;
+  SET_PROVIDERS.push({id:id, name:name, icon:'⚡', desc:'自定义', model:model, url:url, needKey:true, badge:'自定义', badgeClass:'cloud'});
+  selectProvider(id);
+}
+
+async function saveSettings() {
+  var body = {
+    provider: setCurProvider,
+    model: document.getElementById('setModel').value.trim(),
+    base_url: document.getElementById('setBaseUrl').value.trim(),
+    api_key: document.getElementById('setApiKey').value.trim(),
+  };
+  try {
+    var r = await fetch('/settings/llm', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    var d = await r.json();
+    document.getElementById('setMsg').textContent = d.message || '已保存';
+    document.getElementById('setKeyStatus').textContent = body.api_key ? '(已配置)' : '(未配置)';
+    if (d.status === 'ok') showToast('已保存，立即生效');
+  } catch(e) { document.getElementById('setMsg').textContent = '保存失败: ' + e.message; }
+}
+
+async function testConnection() {
+  var el = document.getElementById('setTestResult');
+  var btn = document.getElementById('setTestBtn');
+  el.style.display = 'block';
+  el.style.background = '#f3f4f6';
+  el.textContent = '⏳ 测试中...';
+  btn.disabled = true;
+  try {
+    var r = await fetch('/settings/llm/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        provider: setCurProvider,
+        model: document.getElementById('setModel').value.trim(),
+        base_url: document.getElementById('setBaseUrl').value.trim(),
+        api_key: document.getElementById('setApiKey').value.trim(),
+      })
+    });
+    var d = await r.json();
+    if (d.ok) {
+      el.style.background = '#ecfdf5';
+      el.style.color = '#065f46';
+      el.textContent = '✅ 连接成功！响应: ' + (d.response || '').slice(0, 200);
+    } else {
+      el.style.background = '#fef2f2';
+      el.style.color = '#991b1b';
+      el.textContent = '❌ 连接失败: ' + (d.error || '未知错误');
+    }
+  } catch(e) {
+    el.style.background = '#fef2f2';
+    el.style.color = '#991b1b';
+    el.textContent = '❌ 请求失败: ' + e.message;
+  }
+  btn.disabled = false;
+}
+
+function renderSetCards() {
+  var html = SET_PROVIDERS.map(function(p){
+    var active = p.id === setCurProvider ? ' active' : '';
+    return '<div class="set-card'+active+'" onclick="selectProvider(\''+p.id+'\')"><div class="set-card-icon">'+p.icon+'</div><div class="set-card-name">'+p.name+'</div><div class="set-card-desc">'+p.desc+'</div><span class="set-card-badge '+p.badgeClass+'">'+p.badge+'</span></div>';
+  }).join('');
+  html += '<div class="set-card" onclick="addCustomProvider()" style="border-style:dashed;border-color:#d1d5db"><div class="set-card-icon">➕</div><div class="set-card-name">新增</div><div class="set-card-desc">自定义提供商</div></div>';
+  document.getElementById('setCards').innerHTML = html;
+}
+
+function selectProvider(id) {
+  setCurProvider = id;
+  var p = SET_PROVIDERS.find(function(x){return x.id===id;}) || {};
+  document.getElementById('setModel').value = p.model || '';
+  document.getElementById('setBaseUrl').value = p.url || '';
+  document.getElementById('setApiKey').value = '';
+  document.getElementById('setKeyWrap').style.display = p.needKey ? 'block' : 'none';
+  document.getElementById('setDetailCard').style.display = 'block';
+  document.getElementById('setDetailTitle').textContent = '当前: ' + (p.name || id);
+  renderSetCards();
+}
+
+function addCustomProvider() {
+  var name = prompt('输入提供商名称（如 OpenAI / Groq）');
+  if (!name) return;
+  var id = name.toLowerCase().replace(/\s+/g,'_');
+  var model = prompt('输入默认模型名（如 gpt-4o）');
+  if (!model) return;
+  var url = prompt('输入 API 地址（如 https://api.openai.com）');
+  if (!url) return;
+  SET_PROVIDERS.push({id:id, name:name, icon:'⚡', desc:'自定义', model:model, url:url, needKey:true, badge:'自定义', badgeClass:'cloud'});
+  selectProvider(id);
+}
+
+async function saveSettings() {
+  var body = {
+    provider: setCurProvider,
+    model: document.getElementById('setModel').value.trim(),
+    base_url: document.getElementById('setBaseUrl').value.trim(),
+    api_key: document.getElementById('setApiKey').value.trim(),
+  };
+  try {
+    var r = await fetch('/settings/llm', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    var d = await r.json();
+    document.getElementById('setMsg').textContent = d.message || '已保存';
+    if (d.status === 'ok') showToast('已保存，立即生效');
+  } catch(e) { document.getElementById('setMsg').textContent = '保存失败: ' + e.message; }
+}
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+loadConversations();
+loadCandidates();
+
+// Poll for new candidates every 10 seconds
+state.pollingTimer = setInterval(function() {
+  loadCandidates();
+}, 10000);
 </script>
+
 </body>
 </html>

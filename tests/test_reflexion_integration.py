@@ -97,7 +97,7 @@ class TestReflexionLoopFirstRoundPass:
 
         call_count = [0]
 
-        def count_calls(q):
+        def count_calls(q, **kwargs):
             call_count[0] += 1
             return "ans"
 
@@ -141,7 +141,7 @@ class TestReflexionLoopFirstRoundPass:
         """Feedback from failed review is included in next question"""
         captured_questions = []
 
-        def capture(question):
+        def capture(question, **kwargs):
             captured_questions.append(question)
             return "answer"
 
@@ -201,7 +201,7 @@ class TestCacheAcrossRounds:
         """Data cached by tools in round 1 is available in round 2"""
         # This test verifies that the same ReflexionState is used across rounds
 
-        def generate_with_cache(question):
+        def generate_with_cache(question, **kwargs):
             # Simulate: agent calls search_knowledge which caches data
             state = get_current_state()
             if state:

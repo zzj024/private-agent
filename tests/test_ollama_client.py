@@ -231,11 +231,11 @@ class TestEmbed:
         assert len(vector) == 3
         assert vector == [0.123, -0.456, 0.789]
 
-        # 验证请求地址和参数
+        # 验证请求地址和参数（v0.5: embed 内部调用 embed_batch，input 变为数组）
         args, kwargs = mock_post.call_args
         assert args[0] == "http://127.0.0.1:11434/api/embed"
         assert kwargs["json"]["model"] == "nomic-embed-text"
-        assert kwargs["json"]["input"] == "Hello world"
+        assert kwargs["json"]["input"] == ["Hello world"]
 
     def test_embed_cjk_text(self, client: OllamaClient):
         """中文字符应该能正常向量化"""
@@ -250,7 +250,7 @@ class TestEmbed:
         assert len(vector) == 2
 
     def test_embed_timeout(self, client: OllamaClient):
-        """embedding 超时应该设为 30 秒"""
+        """v0.5: batch embedding 超时设为 300 秒"""
         mock_response = MagicMock()
         mock_response.json.return_value = {"embeddings": [[0.1]]}
 
@@ -258,7 +258,7 @@ class TestEmbed:
             client.embed("nomic-embed-text", "test")
 
         _, kwargs = mock_post.call_args
-        assert kwargs["timeout"] == 30
+        assert kwargs["timeout"] == 300
 
 
 # ═══════════════════════════════════════════════

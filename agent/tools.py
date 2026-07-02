@@ -30,17 +30,34 @@ def search_knowledge(query: str) -> str:
 
 @tool
 def save_memory(key: str, value: str, category: str = "preference") -> str:
-    """保存一条长期记忆"""
+    """保存一条长期记忆。如果 key 已存在且值不同，创建冲突候选用审核。"""
     from memory.sqlite_store import get_store
     store = get_store()
+
+    # 冲突检测
+    existing = store.get_memory(key)
+    if existing and existing.get("value", "").strip() != value.strip():
+        # 冲突 → 不覆盖，创建候选让用户审核
+        store.insert_memory_candidate(
+            key=key, value=value, category=category,
+            confidence=0.9, importance=0.8, sensitivity="low",
+            action="store",
+            evidence=f"Agent 建议修改，旧值: {existing['value']}",
+            reason=f"[冲突] 旧值: {existing['value']} → 新值: {value}",
+            source_conversation_id=None,
+            source_message_ids="[]",
+            status="pending",
+        )
+        return f"Conflict: 记忆 '{key}' 已存在（值: {existing['value']}），新值 '{value}' 已提交审核"
+
     store.save_memory(key, value, category)
-    
+
     # 清除相关缓存
     from agent.reflexion import get_current_state
     state = get_current_state()
     if state:
         state.clear_cache("memory:")
-    
+
     return f"Saved: {key} = {value}"
 
 

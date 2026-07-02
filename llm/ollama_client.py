@@ -51,17 +51,16 @@ class OllamaClient:
                     yield data["message"]["content"]
 
     def embed(self, model: str, text: str) -> list[float]:
-        """将文本转化为向量embedding，用于chroma检索"""
-        url = f"{self.base_url}/api/embed"
-        payload = {
-            "model": model,
-            "input": text,
-        }
-        response = httpx.post(url, json=payload, timeout=30)
-        response.raise_for_status()
+        """单条文本 → 向量（慢，保留兼容）"""
+        return self.embed_batch(model, [text])[0]
 
-        data = response.json()
-        return data["embeddings"][0]
+    def embed_batch(self, model: str, texts: list[str]) -> list[list[float]]:
+        """批量文本 → 向量。Ollama /api/embed 原生支持数组 input，一次请求处理全部。"""
+        url = f"{self.base_url}/api/embed"
+        payload = {"model": model, "input": texts}
+        response = httpx.post(url, json=payload, timeout=300)
+        response.raise_for_status()
+        return response.json()["embeddings"]
 
 def get_ollama_client() -> OllamaClient:
     """获取 OllamaClient 实例"""
